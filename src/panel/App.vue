@@ -399,9 +399,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-:root {
-  /* Orca has no success token; light-dark() follows the color-scheme its shell sets. */
-  --docker-running: light-dark(#1a7f37, #3fb950);
+/* Orca has no success token, so the green is ours. Its shell keeps these classes on the theme. */
+html.light {
+  --docker-running: #1a7f37;
+}
+html.dark {
+  --docker-running: #3fb950;
 }
 body {
   margin: 0;
@@ -415,6 +418,13 @@ input,
 select {
   font: inherit;
   color: inherit;
+}
+input:not([type='checkbox']),
+select {
+  padding: 5px 8px;
+  border: 1px solid var(--orca-input);
+  border-radius: calc(var(--orca-radius) - 2px);
+  background: transparent;
 }
 </style>
 
@@ -482,13 +492,6 @@ details.section > summary {
   gap: 6px;
   font-size: 12px;
   color: var(--orca-muted-foreground);
-}
-input:not([type='checkbox']),
-select {
-  padding: 5px 8px;
-  border: 1px solid var(--orca-input);
-  border-radius: calc(var(--orca-radius) - 2px);
-  background: transparent;
 }
 .toolbar {
   display: flex;

@@ -15,8 +15,15 @@ describe('panel theme', () => {
   })
 
   it('has no fixed color that would suit only one theme', () => {
-    const fixed = style.replace(/light-dark\([^)]*\)/g, '')
+    const fixed = style.replace(/html\.(light|dark) {[^}]*}/g, '')
     expect(fixed.match(/#[0-9a-f]{3,8}\b/gi)).toBeNull()
+  })
+
+  it('gives the running color a value per theme, in plain rules', () => {
+    // The CSS minifier rewrites light-dark() into a polyfill that is not a valid color here.
+    expect(style).not.toContain('light-dark(')
+    expect(style).toMatch(/html\.light {\s*--docker-running: #[0-9a-f]{6};/)
+    expect(style).toMatch(/html\.dark {\s*--docker-running: #[0-9a-f]{6};/)
   })
 
   it('leaves color-scheme to the Orca shell, which follows the theme of Orca and not of the OS', () => {
