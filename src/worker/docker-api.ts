@@ -1,6 +1,7 @@
 import { request, type IncomingMessage, type RequestOptions } from 'node:http'
 import type { ContainerAction } from '../shared/protocol'
 import type { DockerEndpoint } from './docker-endpoint'
+import { LogDecoder } from './log-decoder'
 
 /** Minimal Docker Engine API client: containers, their lifecycle, and the /events stream. */
 
@@ -35,6 +36,7 @@ export class DockerApiError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000
+export const LOG_TAIL_LINES = 500
 /** A stop waits out the container's grace period before Docker kills it. */
 export const ACTION_TIMEOUT_MS = 60_000
 const NOT_MODIFIED = 304
@@ -111,6 +113,22 @@ export class DockerApi {
       // 304: the container already is in that state, which is what was asked for.
       if (!(error instanceof DockerApiError) || error.statusCode !== NOT_MODIFIED) {
         throw error
+      }
+    }
+  }
+
+  /** Follows a container's output until it stops, the daemon goes away, or `signal` aborts. */
+  async followLogs(id: string, onText: (text: string) => void, signal: AbortSignal): Promise<void> {
+    const { Config } = await this.getJson<{ Config: { Tty: boolean } }>(`/containers/${id}/json`)
+    const res = await this.open(
+      `/containers/${id}/logs?follow=1&stdout=1&stderr=1&tail=${LOG_TAIL_LINES}`,
+      signal
+    )
+    const decoder = new LogDecoder(Config.Tty)
+    for await (const chunk of res) {
+      const text = decoder.push(chunk as Buffer)
+      if (text !== '') {
+        onText(text)
       }
     }
   }

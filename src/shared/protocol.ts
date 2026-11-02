@@ -65,3 +65,20 @@ export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'remove'] as const
 
 export type ContainerAction = (typeof CONTAINER_ACTIONS)[number]
 export type ContainerActionInput = { id: string; action: ContainerAction }
+
+export const LOGS_START_REQUEST = 'docker.logs.start'
+export const LOGS_RENEW_REQUEST = 'docker.logs.renew'
+export const LOGS_STOP_REQUEST = 'docker.logs.stop'
+export const LOGS_EVENT = 'docker.logs'
+
+/** How often the panel renews a log stream, well within the worker's lease. */
+export const LOGS_RENEW_MS = 20_000
+
+export type LogsStartInput = { id: string }
+export type LogsStartOutput = { streamId: string }
+export type LogsStreamInput = { streamId: string }
+export type LogsRenewOutput = { alive: boolean }
+
+export type LogsPayload =
+  | { streamId: string; kind: 'text'; text: string }
+  | { streamId: string; kind: 'ended'; error?: string }

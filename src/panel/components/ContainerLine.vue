@@ -5,7 +5,7 @@ import { containerDot } from '../container-state'
 import ContainerActions from './ContainerActions.vue'
 
 const props = defineProps<{ container: TreeContainer; busy: boolean }>()
-const emit = defineEmits<{ action: [action: ContainerAction]; shell: [] }>()
+const emit = defineEmits<{ action: [action: ContainerAction]; shell: []; logs: [] }>()
 
 const meta = computed(() => props.container.ports.join(' ') || props.container.status)
 </script>
@@ -22,6 +22,7 @@ const meta = computed(() => props.container.ports.join(' ') || props.container.s
       :busy="busy"
       @action="(action) => emit('action', action)"
       @shell="emit('shell')"
+      @logs="emit('logs')"
     />
   </li>
 </template>

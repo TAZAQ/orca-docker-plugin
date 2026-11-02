@@ -84,6 +84,26 @@ describe('DockerApi', () => {
     await expect(api.listVolumes()).resolves.toEqual([])
   })
 
+  it('follows multiplexed logs of a container without a TTY', async () => {
+    const seen: string[] = []
+    const api = await fakeDaemon((url, res) => {
+      seen.push(url)
+      if (url.endsWith('/json')) {
+        res.end(JSON.stringify({ Config: { Tty: false } }))
+        return
+      }
+      const payload = Buffer.from('hello\n')
+      const header = Buffer.alloc(8)
+      header[0] = 1
+      header.writeUInt32BE(payload.length, 4)
+      res.end(Buffer.concat([header, payload]))
+    })
+    const texts: string[] = []
+    await api.followLogs('c1', (text) => texts.push(text), new AbortController().signal)
+    expect(texts.join('')).toBe('hello\n')
+    expect(seen[1]).toBe('/containers/c1/logs?follow=1&stdout=1&stderr=1&tail=500')
+  })
+
   it('surfaces the daemon error message', async () => {
     const api = await fakeDaemon((_url, res) => {
       res.statusCode = 500

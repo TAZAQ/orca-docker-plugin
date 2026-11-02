@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, SEND_TEXT_REQUEST, type DockerTree } from '../src/shared/protocol'
+import { emptyTree, SEND_TEXT_REQUEST, type DockerTree, type LogsPayload } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -25,6 +25,7 @@ const tree: DockerTree = {
   volumes: [{ name: 'pgdata', driver: 'local' }]
 }
 const treeListeners: ((value: DockerTree | null) => void)[] = []
+const logListeners: ((payload: LogsPayload) => void)[] = []
 
 function fakeHost(context: WorkspaceContext) {
   const sent: { terminalId: string; text: string; enter: boolean }[] = []
@@ -36,6 +37,13 @@ function fakeHost(context: WorkspaceContext) {
     }),
     loadTree: vi.fn(async () => tree),
     containerAction: vi.fn(async () => undefined),
+    startLogs: vi.fn(async () => 'stream-1'),
+    renewLogs: vi.fn(async () => true),
+    stopLogs: vi.fn(async () => undefined),
+    onLogs: vi.fn((listener: (payload: LogsPayload) => void) => {
+      logListeners.push(listener)
+      return { dispose: () => undefined }
+    }),
     onTreeChanged: vi.fn((listener: (value: DockerTree | null) => void) => {
       treeListeners.push(listener)
       return { dispose: () => undefined }
@@ -240,6 +248,34 @@ describe('panel', () => {
     await wrapper.get('[data-test="action-restart"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="status"]').text()).toBe('no such container')
+  })
+
+  it('shows logs in the panel and stops the stream when closed', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="action-logs"]').trigger('click')
+    await flushPromises()
+    expect(host.startLogs).toHaveBeenCalledWith('abc')
+    logListeners.at(-1)!({ streamId: 'stream-1', kind: 'text', text: 'first\nsec' })
+    logListeners.at(-1)!({ streamId: 'other', kind: 'text', text: 'not for us\n' })
+    logListeners.at(-1)!({ streamId: 'stream-1', kind: 'text', text: 'ond\n' })
+    await flushPromises()
+    expect(wrapper.get('[data-test="logs"]').text()).toBe('first\nsecond')
+    await wrapper.get('[data-test="logs-close"]').trigger('click')
+    await flushPromises()
+    expect(host.stopLogs).toHaveBeenCalledWith('stream-1')
+    expect(wrapper.find('[data-test="logs"]').exists()).toBe(false)
+  })
+
+  it('filters log lines and says when the stream ended', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="action-logs"]').trigger('click')
+    await flushPromises()
+    logListeners.at(-1)!({ streamId: 'stream-1', kind: 'text', text: 'alpha\nbeta\n' })
+    logListeners.at(-1)!({ streamId: 'stream-1', kind: 'ended', error: 'daemon went away' })
+    await flushPromises()
+    await wrapper.get('[data-test="logs-filter"]').setValue('BET')
+    expect(wrapper.get('[data-test="logs"]').text()).toBe('beta')
+    expect(wrapper.get('[data-test="logs-ended"]').text()).toContain('daemon went away')
   })
 
   it('shows why the tree is unavailable', async () => {

@@ -4,7 +4,7 @@ import type { ContainerAction, TreeContainer } from '../../shared/protocol'
 import ActionIcon from './ActionIcon.vue'
 
 const props = defineProps<{ container: TreeContainer; busy: boolean }>()
-const emit = defineEmits<{ action: [action: ContainerAction]; shell: [] }>()
+const emit = defineEmits<{ action: [action: ContainerAction]; shell: []; logs: [] }>()
 
 const CONFIRM_MS = 4000
 
@@ -29,6 +29,9 @@ onBeforeUnmount(() => clearTimeout(confirmTimer))
 
 <template>
   <span class="actions" @click.stop>
+    <button title="Show logs" data-test="action-logs" @click="emit('logs')">
+      <ActionIcon name="logs" />
+    </button>
     <template v-if="running">
       <button title="Stop" :disabled="busy" data-test="action-stop" @click="emit('action', 'stop')">
         <ActionIcon name="stop" />

@@ -1,11 +1,18 @@
 import {
   CONTAINER_ACTION_REQUEST,
+  LOGS_EVENT,
+  LOGS_RENEW_REQUEST,
+  LOGS_START_REQUEST,
+  LOGS_STOP_REQUEST,
   SEND_TEXT_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
   type ContainerAction,
   type ContainerActionInput,
   type DockerTree,
+  type LogsPayload,
+  type LogsRenewOutput,
+  type LogsStartOutput,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -25,6 +32,10 @@ export type HostBridge = {
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
   onTreeChanged(listener: (tree: DockerTree | null) => void): Subscription
+  startLogs(id: string): Promise<string>
+  renewLogs(streamId: string): Promise<boolean>
+  stopLogs(streamId: string): Promise<void>
+  onLogs(listener: (payload: LogsPayload) => void): Subscription
 }
 
 export type Subscription = { dispose(): void }
@@ -61,6 +72,20 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
     },
     onTreeChanged(listener) {
       return orca.plugin.on(TREE_CHANGED_EVENT, listener)
+    },
+    async startLogs(id) {
+      const output = (await orca.plugin.request(LOGS_START_REQUEST, { id })) as LogsStartOutput
+      return output.streamId
+    },
+    async renewLogs(streamId) {
+      const output = (await orca.plugin.request(LOGS_RENEW_REQUEST, { streamId })) as LogsRenewOutput
+      return output.alive
+    },
+    async stopLogs(streamId) {
+      await orca.plugin.request(LOGS_STOP_REQUEST, { streamId })
+    },
+    onLogs(listener) {
+      return orca.plugin.on(LOGS_EVENT, listener)
     }
   }
 }

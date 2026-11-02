@@ -19,6 +19,7 @@ import {
 } from '../shared/compose'
 import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
 import ActionIcon, { type IconName } from './components/ActionIcon.vue'
+import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
 
 const props = defineProps<{ host: HostBridge }>()
@@ -44,6 +45,7 @@ let confirmTimer: ReturnType<typeof setTimeout> | undefined
 
 const tree = ref<DockerTree | null>(null)
 const busyContainers = ref<ReadonlySet<string>>(new Set())
+const logsContainer = ref<TreeContainer | null>(null)
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 
@@ -235,8 +237,17 @@ onBeforeUnmount(() => {
         @pick="pickService"
         @action="runContainerAction"
         @shell="openShell"
+        @logs="(container) => (logsContainer = container)"
       />
     </section>
+
+    <LogViewer
+      v-if="logsContainer"
+      :key="logsContainer.id"
+      :host="host"
+      :container="logsContainer"
+      @close="logsContainer = null"
+    />
 
     <section class="section">
       <label class="field">

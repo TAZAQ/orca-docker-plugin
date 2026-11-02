@@ -1,11 +1,12 @@
 import { homedir } from 'node:os'
-import { TREE_CHANGED_EVENT } from '../shared/protocol'
+import { LOGS_EVENT, TREE_CHANGED_EVENT } from '../shared/protocol'
 import { formatStatus, summarizeProjects } from './compose-status'
 import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
 import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
 import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
 import { EventWatcher } from './event-watcher'
+import { LogStreams } from './log-streams'
 import { registerPanelRequests } from './panel-requests'
 
 /** The `activate(orca)` surface of Orca's plugin worker. */
@@ -109,8 +110,14 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     return { enabled }
   })
 
+  const logs = new LogStreams({
+    follow: async (id, onText, signal) => (await api()).followLogs(id, onText, signal),
+    post: (payload) => orca.panels.post(LOGS_EVENT, payload)
+  })
+
   registerPanelRequests(orca, {
     tree,
+    logs,
     containerAction: async (id, action) => (await api()).containerAction(id, action)
   })
 
@@ -121,6 +128,7 @@ export default async function activate(orca: OrcaApi): Promise<void> {
   stopWorker = async () => {
     clearInterval(keepalive)
     tree.stop()
+    logs.stop()
     await watcher.stop()
   }
 

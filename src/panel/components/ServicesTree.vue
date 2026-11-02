@@ -24,6 +24,7 @@ const emit = defineEmits<{
   pick: [project: TreeProject, service: TreeService | null]
   action: [container: TreeContainer, action: ContainerAction]
   shell: [container: TreeContainer]
+  logs: [container: TreeContainer]
 }>()
 
 const ROOT = 'docker'
@@ -122,6 +123,7 @@ function pickProject(project: TreeProject): void {
                     :busy="busy.has(service.containers[0]!.id)"
                     @action="(action) => emit('action', service.containers[0]!, action)"
                     @shell="emit('shell', service.containers[0]!)"
+                    @logs="emit('logs', service.containers[0]!)"
                   />
                 </div>
                 <ul v-if="service.containers.length > 1" class="tree nested">
@@ -132,6 +134,7 @@ function pickProject(project: TreeProject): void {
                     :busy="busy.has(container.id)"
                     @action="(action) => emit('action', container, action)"
                     @shell="emit('shell', container)"
+                    @logs="emit('logs', container)"
                   />
                 </ul>
               </li>
@@ -152,6 +155,7 @@ function pickProject(project: TreeProject): void {
                 :busy="busy.has(container.id)"
                 @action="(action) => emit('action', container, action)"
                 @shell="emit('shell', container)"
+                @logs="emit('logs', container)"
               />
             </ul>
           </li>
@@ -171,6 +175,7 @@ function pickProject(project: TreeProject): void {
                 :busy="busy.has(container.id)"
                 @action="(action) => emit('action', container, action)"
                 @shell="emit('shell', container)"
+                @logs="emit('logs', container)"
               />
             </ul>
           </li>

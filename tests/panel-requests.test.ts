@@ -3,6 +3,9 @@ import { registerPanelRequests } from '../src/worker/panel-requests'
 import {
   CONTAINER_ACTION_REQUEST,
   emptyTree,
+  LOGS_RENEW_REQUEST,
+  LOGS_START_REQUEST,
+  LOGS_STOP_REQUEST,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type DockerTree
@@ -13,12 +16,13 @@ function fakeOrca(accepted = true) {
   const call = vi.fn(async () => ({ accepted }))
   const tree: DockerTree = emptyTree()
   const containerAction = vi.fn(async () => undefined)
+  const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
     {
       panels: { handle: (name, handler) => void handlers.set(name, handler) },
       host: { call }
     },
-    { tree: { current: async () => tree }, containerAction }
+    { tree: { current: async () => tree }, containerAction, logs }
   )
   return {
     call,
@@ -26,6 +30,8 @@ function fakeOrca(accepted = true) {
     send: (input: unknown) => handlers.get(SEND_TEXT_REQUEST)!(input),
     loadTree: () => handlers.get(TREE_REQUEST)!(null),
     containerAction,
+    logs,
+    request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }
 }
@@ -63,6 +69,21 @@ describe('registerPanelRequests', () => {
     const { act, containerAction } = fakeOrca()
     await expect(act(input)).rejects.toMatchObject({ code: 'invalid_params' })
     expect(containerAction).not.toHaveBeenCalled()
+  })
+
+  it('starts, renews and stops a log stream', () => {
+    const { logs, request } = fakeOrca()
+    expect(request(LOGS_START_REQUEST, { id: 'abcdef012345' })).toEqual({ streamId: 'stream-1' })
+    expect(request(LOGS_RENEW_REQUEST, { streamId: 'stream-1' })).toEqual({ alive: true })
+    request(LOGS_STOP_REQUEST, { streamId: 'stream-1' })
+    expect(logs.start).toHaveBeenCalledWith('abcdef012345')
+    expect(logs.stop).toHaveBeenCalledWith('stream-1')
+  })
+
+  it('refuses logs of something that is not a container id', () => {
+    const { logs, request } = fakeOrca()
+    expect(() => request(LOGS_START_REQUEST, { id: '../../version' })).toThrow('malformed input')
+    expect(logs.start).not.toHaveBeenCalled()
   })
 
   it('reports a terminal that refused the text', async () => {
