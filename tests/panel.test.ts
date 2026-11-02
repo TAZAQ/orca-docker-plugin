@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, SEND_TEXT_REQUEST, type DockerTree, type LogsPayload, type PanelState } from '../src/shared/protocol'
+import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -30,18 +30,15 @@ const logListeners: ((payload: LogsPayload) => void)[] = []
 const contextListeners: ((value: WorkspaceContext) => void)[] = []
 
 function fakeHost(context: WorkspaceContext) {
-  const sent: { terminalId: string; text: string; enter: boolean }[] = []
+  const sent: OpenTerminalInput[] = []
   const host: HostBridge = {
     readContext: vi.fn(async () => context),
     onContextChanged: vi.fn((listener: (value: WorkspaceContext) => void) => {
       contextListeners.push(listener)
       return { dispose: () => undefined }
     }),
-    loadState: vi.fn(async (): Promise<Partial<PanelState> | null> => null),
-    saveState: vi.fn(async () => undefined),
-    sendText: vi.fn(async (terminalId: string, text: string, enter: boolean) => {
-      sent.push({ terminalId, text, enter })
-      return true
+    openTerminal: vi.fn(async (input: OpenTerminalInput) => {
+      sent.push(input)
     }),
     loadTree: vi.fn(async () => tree),
     containerAction: vi.fn(async () => undefined),
@@ -66,7 +63,12 @@ function fakeHost(context: WorkspaceContext) {
   return { host, sent }
 }
 
-const workspace = { displayName: 'medods', branch: 'develop', terminals: [{ id: 't-1' }, { id: 't-2' }] }
+const workspace = { displayName: 'medods', branch: 'develop' }
+
+async function openLogs(wrapper: VueWrapper) {
+  await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+  await menuItem(wrapper, 'Show Logs').trigger('click')
+}
 
 function menuItem(wrapper: VueWrapper, label: string) {
   const item = wrapper
@@ -173,54 +175,13 @@ describe('panel', () => {
   })
 
 
-  it('runs container actions through the worker, not a terminal', async () => {
-    const { host, sent, wrapper } = await mountWithProject({ ...workspace, terminals: [] })
-    await wrapper.get('[data-test="action-stop"]').trigger('click')
-    await flushPromises()
-    expect(host.containerAction).toHaveBeenCalledWith('abc', 'stop')
-    expect(sent).toEqual([])
-    expect(wrapper.get('[data-test="status"]').text()).toBe('shop-web-1: stop done')
-  })
 
-  it('offers start and remove only for a stopped container, and remove needs a second click', async () => {
-    const { host, wrapper } = await mountWithProject()
-    expect(wrapper.find('[data-test="action-remove"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="action-start"]').exists()).toBe(false)
-    const stopped = { ...container, state: 'exited', status: 'Exited (0)' }
-    treeListeners.at(-1)!({
-      ...tree,
-      projects: [{ ...tree.projects[0]!, services: [{ name: 'web', containers: [stopped] }] }]
-    })
-    await flushPromises()
-    expect(wrapper.find('[data-test="action-stop"]').exists()).toBe(false)
-    const remove = wrapper.get('[data-test="action-remove"]')
-    await remove.trigger('click')
-    expect(host.containerAction).not.toHaveBeenCalled()
-    await remove.trigger('click')
-    expect(host.containerAction).toHaveBeenCalledWith('abc', 'remove')
-  })
 
-  it('opens a shell in the chosen terminal by the container name', async () => {
-    const { sent, wrapper } = await mountWithProject()
-    await wrapper.get('[data-test="action-shell"]').trigger('click')
-    await flushPromises()
-    expect(sent[0]).toEqual({ terminalId: 't-1', text: 'docker exec -it shop-web-1 sh', enter: true })
-  })
 
-  it('shows a failed container action', async () => {
-    const { host, wrapper } = await mountWithProject()
-    host.containerAction = vi.fn(async () => {
-      throw new Error('no such container')
-    })
-    await wrapper.setProps({ host })
-    await wrapper.get('[data-test="action-restart"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-test="status"]').text()).toBe('no such container')
-  })
 
   it('shows logs in the panel and stops the stream when closed', async () => {
     const { host, wrapper } = await mountWithProject()
-    await wrapper.get('[data-test="action-logs"]').trigger('click')
+    await openLogs(wrapper)
     await flushPromises()
     expect(host.startLogs).toHaveBeenCalledWith('abc')
     logListeners.at(-1)!({ streamId: 'stream-1', kind: 'text', text: 'first\nsec' })
@@ -236,7 +197,7 @@ describe('panel', () => {
 
   it('filters log lines and says when the stream ended', async () => {
     const { wrapper } = await mountWithProject()
-    await wrapper.get('[data-test="action-logs"]').trigger('click')
+    await openLogs(wrapper)
     await flushPromises()
     logListeners.at(-1)!({ streamId: 'stream-1', kind: 'text', text: 'alpha\nbeta\n' })
     logListeners.at(-1)!({ streamId: 'stream-1', kind: 'ended', error: 'daemon went away' })
@@ -246,29 +207,7 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="logs-ended"]').text()).toContain('daemon went away')
   })
 
-  it('follows the terminals of the workspace without a refresh', async () => {
-    const { sent, wrapper } = await mountWithProject({ ...workspace, terminals: [] })
-    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    expect(menuItem(wrapper, 'Deploy').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-test="context-menu"]').trigger('keydown', { key: 'Escape' })
-    contextListeners.at(-1)!({ ...workspace, terminals: [{ id: 't-9', title: 'server' }] })
-    await flushPromises()
-    expect(wrapper.get('[data-test="terminal"]').text()).toBe('server')
-    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Deploy').trigger('click')
-    await flushPromises()
-    expect(sent[0]!.terminalId).toBe('t-9')
-  })
 
-  it('moves on when the chosen terminal closes', async () => {
-    const { host } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    await wrapper.get('[data-test="terminal"]').setValue('t-2')
-    contextListeners.at(-1)!({ ...workspace, terminals: [{ id: 't-1' }] })
-    await flushPromises()
-    expect((wrapper.get('[data-test="terminal"]').element as HTMLSelectElement).value).toBe('t-1')
-  })
 
   it('does not repeat a branch that is the name of the workspace', async () => {
     const { host } = fakeHost({ ...workspace, displayName: 'master', branch: 'master' })
@@ -299,74 +238,29 @@ describe('panel', () => {
     expect(menuItem(wrapper, 'Jump to Source').attributes('disabled')).toBeDefined()
     await menuItem(wrapper, 'Deploy').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d')
+    expect(sent[0]!.command).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d')
     expect(wrapper.find('[data-test="context-menu"]').exists()).toBe(false)
   })
 
-  it('keeps the bottom of the panel to the terminal choice', async () => {
-    const { host } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    expect(wrapper.text()).not.toContain('Compose options')
-    expect(wrapper.find('[data-test="service"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="terminal"]').exists()).toBe(true)
-    expect(wrapper.find('[data-test="run-immediately"]').exists()).toBe(true)
-  })
 
-  it('types into the chosen terminal, without Enter when asked to', async () => {
-    const { sent, wrapper } = await mountWithProject()
-    await wrapper.get('[data-test="terminal"]').setValue('t-2')
-    await wrapper.get('[data-test="run-immediately"]').setValue(false)
-    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Pull').trigger('click')
-    await flushPromises()
-    expect(sent).toEqual([
-      { terminalId: 't-2', text: 'docker compose -p shop -f /srv/shop/compose.yaml pull', enter: false }
-    ])
-  })
 
   it('rebuilds the service a container came from', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
     await menuItem(wrapper, 'Rebuild Service').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d --build web')
+    expect(sent[0]!.command).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d --build web')
   })
 
   it('starts a project that has no containers yet from the terminal folder', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Compose Up in Terminal Folder').trigger('click')
+    await menuItem(wrapper, 'Compose Up in Workspace Folder').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker compose up -d')
+    expect(sent[0]!.command).toBe('docker compose up -d')
   })
 
-  it('shows a terminal that refused a command', async () => {
-    const { host, wrapper } = await mountWithProject()
-    host.sendText = vi.fn(async () => {
-      throw new Error('terminal not found')
-    })
-    await wrapper.setProps({ host })
-    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Stop').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-test="status"]').text()).toBe('terminal not found')
-  })
 
-  it('remembers Run immediately, but never saves the default over what is stored', async () => {
-    vi.useFakeTimers()
-    const { host } = fakeHost(workspace)
-    host.loadState = vi.fn(async () => ({ runImmediately: false }))
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    await vi.advanceTimersByTimeAsync(1000)
-    expect((wrapper.get('[data-test="run-immediately"]').element as HTMLInputElement).checked).toBe(false)
-    await wrapper.get('[data-test="run-immediately"]').setValue(true)
-    await vi.advanceTimersByTimeAsync(1000)
-    vi.useRealTimers()
-    expect(host.saveState).toHaveBeenCalledTimes(1)
-    expect(host.saveState).toHaveBeenCalledWith({ runImmediately: true })
-  })
 
   async function mountWithImages() {
     const { host, wrapper } = await mountWithProject()
@@ -464,6 +358,91 @@ describe('panel', () => {
     wrapper.unmount()
   })
 
+  it('opens a shell in a terminal when a running container is clicked', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    await flushPromises()
+    expect(sent).toEqual([
+      { title: 'shop-web-1 sh', command: 'docker exec -it shop-web-1 sh', reuseKey: 'sh:abc' }
+    ])
+  })
+
+  it('opens nothing for a stopped container and says why', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    const stopped = { ...container, state: 'exited', status: 'Exited (0)' }
+    treeListeners.at(-1)!({
+      ...tree,
+      projects: [{ ...tree.projects[0]!, services: [{ name: 'web', containers: [stopped] }] }]
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    await flushPromises()
+    expect(sent).toEqual([])
+    expect(wrapper.get('[data-test="status"]').text()).toBe('shop-web-1 is not running')
+  })
+
+  it('has no shortcut buttons on the rows', async () => {
+    const { wrapper } = await mountWithProject()
+    expect(wrapper.find('[data-test^="action-"]').exists()).toBe(false)
+  })
+
+  it('has no terminal section left', async () => {
+    const { wrapper } = await mountWithProject()
+    expect(wrapper.find('select').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Run immediately')
+  })
+
+  it('lights up one row, the last clicked or right-clicked', async () => {
+    const { wrapper } = await mountWithProject()
+    const lit = () => wrapper.findAll('.row.active').map((row) => row.attributes('data-test'))
+    expect(lit()).toEqual(['project-row-shop'])
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    expect(lit()).toEqual(['service-row-shop-web'])
+    await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
+    expect(lit()).toEqual(['group-images'])
+    await wrapper.get('[data-test="group-containers"]').trigger('click')
+    await wrapper.get('[data-test="container-row-shop-web-1"]').trigger('click')
+    expect(lit()).toEqual(['container-row-shop-web-1'])
+  })
+
+  it('offers start and removal, which asks first, for a stopped container', async () => {
+    const { host, wrapper } = await mountWithProject()
+    const stopped = { ...container, state: 'exited', status: 'Exited (0)' }
+    treeListeners.at(-1)!({
+      ...tree,
+      projects: [{ ...tree.projects[0]!, services: [{ name: 'web', containers: [stopped] }] }]
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Container').trigger('click')
+    expect(host.containerAction).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    expect(host.containerAction).toHaveBeenCalledWith('abc', 'remove')
+  })
+
+  it('shows a failed container action', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.containerAction = vi.fn(async () => {
+      throw new Error('no such container')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Restart Container').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('no such container')
+  })
+
+  it('shows a terminal that could not open', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.openTerminal = vi.fn(async () => {
+      throw new Error('Open any terminal in this workspace first')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Open any terminal in this workspace first')
+  })
+
   it('asks before Down from the menu', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
@@ -471,7 +450,7 @@ describe('panel', () => {
     expect(sent).toEqual([])
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
+    expect(sent[0]!.command).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
   })
 
   it('offers the JetBrains container menu on a running container', async () => {
@@ -523,7 +502,18 @@ describe('panel', () => {
     await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
     await menuItem(wrapper, 'Attach').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker attach --sig-proxy=false shop-web-1')
+    expect(sent[0]!.command).toBe('docker attach --sig-proxy=false shop-web-1')
+  })
+
+  it('runs a compose action in its own terminal', async () => {
+    const { host, sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Pull').trigger('click')
+    await flushPromises()
+    expect(sent).toEqual([
+      { title: 'shop pull', command: 'docker compose -p shop -f /srv/shop/compose.yaml pull' }
+    ])
+    expect(host.containerAction).not.toHaveBeenCalled()
   })
 
   it('runs Exec with the typed command, and Create Terminal with the chosen shell', async () => {
@@ -533,20 +523,14 @@ describe('panel', () => {
     await wrapper.get('[data-test="dialog-input"]').setValue('env | sort')
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
     await flushPromises()
-    expect(sent[0]!.text).toBe('docker exec -it shop-web-1 env | sort')
+    expect(sent[0]!.command).toBe('docker exec -it shop-web-1 env | sort')
     await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
     await menuItem(wrapper, 'Create Terminal').trigger('click')
     await menuItem(wrapper, 'bash').trigger('click')
     await flushPromises()
-    expect(sent[1]!.text).toBe('docker exec -it shop-web-1 bash')
+    expect(sent[1]!.command).toBe('docker exec -it shop-web-1 bash')
   })
 
-  it('needs a terminal for Attach and Exec but not for Inspect', async () => {
-    const { wrapper } = await mountWithProject({ ...workspace, terminals: [] })
-    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
-    expect(menuItem(wrapper, 'Attach').attributes('disabled')).toBeDefined()
-    expect(menuItem(wrapper, 'Inspect').attributes('disabled')).toBeUndefined()
-  })
 
   it('shows Inspect, Show Processes and Show Files inside the panel', async () => {
     const { host, wrapper } = await mountWithProject()
@@ -620,16 +604,6 @@ describe('createHostBridge', () => {
     expect(orca.host.call).toHaveBeenCalledWith('workspace.readContext')
   })
 
-  it('asks the worker to type, because panels may not call terminal.sendText', async () => {
-    const orca = fakeOrca()
-    await expect(createHostBridge(orca).sendText('t-1', 'docker compose ps', true)).resolves.toBe(true)
-    expect(orca.plugin.request).toHaveBeenCalledWith(SEND_TEXT_REQUEST, {
-      terminalId: 't-1',
-      text: 'docker compose ps',
-      enter: true
-    })
-    expect(orca.host.call).not.toHaveBeenCalled()
-  })
 
   it('hears workspace changes from Orca', () => {
     const orca = fakeOrca()
@@ -641,17 +615,19 @@ describe('createHostBridge', () => {
     expect(listener).toHaveBeenCalledWith(workspace)
   })
 
-  it('keeps the panel state in the plugin storage', async () => {
+
+  it('asks the worker to open a terminal, because panels cannot', async () => {
     const orca = fakeOrca()
-    orca.host.call.mockResolvedValue({ value: { runImmediately: false } })
-    await expect(createHostBridge(orca).loadState()).resolves.toEqual({ runImmediately: false })
-    expect(orca.host.call).toHaveBeenCalledWith('storage.get', { key: 'panelState' })
+    const input = { title: 'web sh', command: 'docker exec -it web sh' }
+    await createHostBridge(orca).openTerminal(input)
+    expect(orca.plugin.request).toHaveBeenCalledWith(OPEN_TERMINAL_REQUEST, input)
+    expect(orca.host.call).not.toHaveBeenCalled()
   })
 
   it('passes a worker failure on to the caller', async () => {
     const orca = fakeOrca()
     orca.plugin.request.mockRejectedValue(Object.assign(new Error('worker is down'), { code: 'unavailable' }))
-    await expect(createHostBridge(orca).sendText('t-1', 'x', true)).rejects.toMatchObject({
+    await expect(createHostBridge(orca).openTerminal({ title: 't', command: 'c' })).rejects.toMatchObject({
       code: 'unavailable',
       message: 'worker is down'
     })

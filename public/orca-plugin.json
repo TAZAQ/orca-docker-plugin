@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "docker",
   "name": "Docker",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Docker Compose controls in a side panel and notifications when containers crash.",
   "engines": { "orca": ">=1.4.246" },
   "execution": "trusted-worker",
@@ -19,7 +19,6 @@
   "capabilities": [
     { "kind": "workspace:read" },
     { "kind": "agent:read" },
-    { "kind": "terminal:send" },
     { "kind": "notifications:show" },
     { "kind": "storage:own" }
   ]

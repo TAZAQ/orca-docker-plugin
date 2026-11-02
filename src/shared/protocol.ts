@@ -1,9 +1,13 @@
 /** The contract between the panel and the worker, shared by both sides. */
 
-export const SEND_TEXT_REQUEST = 'terminal.send'
+export const OPEN_TERMINAL_REQUEST = 'terminal.open'
 
-export type SendTextInput = { terminalId: string; text: string; enter: boolean }
-export type SendTextOutput = { accepted: boolean }
+export type OpenTerminalInput = {
+  title: string
+  command: string
+  /** Asking again with the same key returns to that terminal instead of opening another. */
+  reuseKey?: string
+}
 
 export const TREE_REQUEST = 'docker.tree'
 export const TREE_CHANGED_EVENT = 'docker.tree.changed'
@@ -84,12 +88,6 @@ export type LogsPayload =
   | { streamId: string; kind: 'text'; text: string }
   | { streamId: string; kind: 'ended'; error?: string }
 
-export const PANEL_STATE_KEY = 'panelState'
-
-/** What the panel remembers between openings, in the plugin's own storage. */
-export type PanelState = {
-  runImmediately: boolean
-}
 
 export const INSPECT_REQUEST = 'docker.inspect'
 export const PROCESSES_REQUEST = 'docker.processes'

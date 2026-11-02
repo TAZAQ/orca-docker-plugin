@@ -36,10 +36,9 @@ export type MenuTarget =
   | { kind: 'image'; image: TreeImage }
 
 export type MenuActions = {
-  canSend(): boolean
   images(): TreeImage[]
   compose(project: TreeProject, action: ProjectAction): void
-  composeInTerminalFolder(): void
+  composeInWorkspaceFolder(): void
   service(project: TreeProject, service: TreeService, action: ServiceAction): void
   containerAction(container: TreeContainer, action: ContainerAction): void
   removeContainer(container: TreeContainer): void
@@ -57,16 +56,13 @@ export type MenuActions = {
   pruneImages(mode: PruneMode): void
 }
 
-const NO_TERMINAL = 'Open a terminal in this worktree first'
 const NEEDS_NEWER_ORCA = 'This version of Orca cannot open files from a plugin'
 const NOT_RUNNING = 'The container is not running'
 
 function projectMenu(project: TreeProject, actions: MenuActions): MenuEntry[] {
-  const terminal = actions.canSend() ? {} : { disabledReason: NO_TERMINAL }
   const compose = (label: string, icon: IconName, action: ProjectAction): MenuItem => ({
     label,
     icon,
-    ...terminal,
     run: () => actions.compose(project, action)
   })
   const [composeFile] = project.configFiles
@@ -94,11 +90,9 @@ function projectMenu(project: TreeProject, actions: MenuActions): MenuEntry[] {
 }
 
 function serviceMenu(project: TreeProject, service: TreeService, actions: MenuActions): MenuEntry[] {
-  const terminal = actions.canSend() ? {} : { disabledReason: NO_TERMINAL }
   const run = (label: string, icon: IconName, action: ServiceAction): MenuItem => ({
     label,
     icon,
-    ...terminal,
     run: () => actions.service(project, service, action)
   })
   return [
@@ -120,7 +114,6 @@ function imageMenu(image: TreeImage, actions: MenuActions): MenuEntry[] {
       ? {
           label: 'Pull',
           icon: 'down',
-          ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
           run: () => actions.pullImage(tag)
         }
       : { label: 'Pull', icon: 'down', disabledReason: 'The image has no tag' },
@@ -166,11 +159,10 @@ function lifecycleItems(container: TreeContainer, actions: MenuActions): MenuEnt
 function dockerMenu(actions: MenuActions): MenuEntry[] {
   return [
     {
-      label: 'Compose Up in Terminal Folder',
-      icon: 'deploy',
       // A project with no containers yet is not in the tree, so this is how it gets started.
-      ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
-      run: () => actions.composeInTerminalFolder()
+      label: 'Compose Up in Workspace Folder',
+      icon: 'deploy',
+      run: () => actions.composeInWorkspaceFolder()
     }
   ]
 }
@@ -181,13 +173,6 @@ function containerMenu(
   compose?: { project: TreeProject; service: TreeService }
 ): MenuEntry[] {
   const running = isRunning(container)
-  /** Runs in a terminal, inside the container, so it needs both. */
-  const inside = (): Pick<MenuItem, 'disabledReason'> => {
-    if (!running) {
-      return { disabledReason: NOT_RUNNING }
-    }
-    return actions.canSend() ? {} : { disabledReason: NO_TERMINAL }
-  }
   const whenRunning = running ? {} : { disabledReason: NOT_RUNNING }
   return [
     ...lifecycleItems(container, actions),
@@ -198,12 +183,12 @@ function containerMenu(
     { label: 'Copy Image ID', icon: 'copy', run: () => actions.copy('Image ID', container.imageId) },
     { label: 'Inspect', icon: 'search', run: () => actions.inspectContainer(container) },
     { label: 'Show Processes', ...whenRunning, run: () => actions.processes(container) },
-    { label: 'Attach', ...inside(), run: () => actions.attach(container) },
-    { label: 'Exec', ...inside(), run: () => actions.exec(container) },
+    { label: 'Attach', ...whenRunning, run: () => actions.attach(container) },
+    { label: 'Exec', ...whenRunning, run: () => actions.exec(container) },
     {
       label: 'Create Terminal',
       icon: 'terminal',
-      ...inside(),
+      ...whenRunning,
       children: ['sh', 'bash'].map((shell) => ({
         label: shell,
         run: () => actions.shell(container, shell)
@@ -214,8 +199,7 @@ function containerMenu(
           {
             label: 'Rebuild Service',
             icon: 'build',
-            ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
-            run: () => actions.service(compose.project, compose.service, 'rebuild')
+              run: () => actions.service(compose.project, compose.service, 'rebuild')
           } satisfies MenuItem
         ]
       : []),

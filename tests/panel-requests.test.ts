@@ -11,15 +11,15 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
-  SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type DockerTree
 } from '../src/shared/protocol'
 
-function fakeOrca(accepted = true) {
+function fakeOrca() {
   const handlers = new Map<string, (input: unknown) => unknown>()
-  const call = vi.fn(async () => ({ accepted }))
+  const openTerminal = vi.fn(async () => undefined)
   const tree: DockerTree = emptyTree()
   const containerAction = vi.fn(async () => undefined)
   const files = vi.fn(async () => 'total 0')
@@ -27,11 +27,9 @@ function fakeOrca(accepted = true) {
   const pruneImages = vi.fn(async () => ({ removed: 0, reclaimed: 0 }))
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
+    { panels: { handle: (name, handler) => void handlers.set(name, handler) } },
     {
-      panels: { handle: (name, handler) => void handlers.set(name, handler) },
-      host: { call }
-    },
-    {
+      terminals: { open: openTerminal },
       tree: { current: async () => tree },
       containerAction,
       logs,
@@ -44,9 +42,9 @@ function fakeOrca(accepted = true) {
     }
   )
   return {
-    call,
+    openTerminal,
     tree,
-    send: (input: unknown) => handlers.get(SEND_TEXT_REQUEST)!(input),
+    open: (input: unknown) => handlers.get(OPEN_TERMINAL_REQUEST)!(input),
     loadTree: () => handlers.get(TREE_REQUEST)!(null),
     containerAction,
     logs,
@@ -59,16 +57,11 @@ function fakeOrca(accepted = true) {
 }
 
 describe('registerPanelRequests', () => {
-  it('types into the terminal on behalf of the panel, which cannot do it itself', async () => {
-    const { call, send } = fakeOrca()
-    await expect(send({ terminalId: 't-1', text: 'docker compose ps', enter: false })).resolves.toEqual({
-      accepted: true
-    })
-    expect(call).toHaveBeenCalledWith('terminal.sendText', {
-      terminalId: 't-1',
-      text: 'docker compose ps',
-      enter: false
-    })
+  it('opens a terminal on behalf of the panel, which cannot do it itself', async () => {
+    const { open, openTerminal } = fakeOrca()
+    const input = { title: 'web sh', command: 'docker exec -it web sh', reuseKey: 'sh:web' }
+    await open(input)
+    expect(openTerminal).toHaveBeenCalledWith(input)
   })
 
   it('answers with the current tree', async () => {
@@ -169,19 +162,14 @@ describe('registerPanelRequests', () => {
     expect(pruneImages).not.toHaveBeenCalled()
   })
 
-  it('reports a terminal that refused the text', async () => {
-    const { send } = fakeOrca(false)
-    await expect(send({ terminalId: 't-1', text: 'x', enter: true })).resolves.toEqual({ accepted: false })
-  })
-
   it.each([
     [null],
-    [{ terminalId: 't-1', text: 'x' }],
-    [{ terminalId: '', text: 'x', enter: true }],
-    [{ terminalId: 't-1', text: 1, enter: true }]
+    [{ title: 't' }],
+    [{ title: 't', command: '' }],
+    [{ title: 't', command: 'c', reuseKey: 1 }]
   ])('refuses malformed input %j', async (input) => {
-    const { call, send } = fakeOrca()
-    await expect(send(input)).rejects.toMatchObject({ code: 'invalid_params' })
-    expect(call).not.toHaveBeenCalled()
+    const { open, openTerminal } = fakeOrca()
+    await expect(open(input)).rejects.toMatchObject({ code: 'invalid_params' })
+    expect(openTerminal).not.toHaveBeenCalled()
   })
 })

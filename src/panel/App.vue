@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   emptyTree,
   type ContainerAction,
   type DockerTree,
-  type PanelState,
   type PruneMode,
   type TreeImage,
   type TreeContainer,
@@ -27,26 +26,21 @@ import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
 import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
-import { formatSize } from './container-state'
+import { formatSize, isRunning } from './container-state'
 import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget } from './menus'
 
 const props = defineProps<{ host: HostBridge }>()
 
 const TREE_POLL_MS = 30_000
-const SAVE_DELAY_MS = 500
-const NO_TERMINAL = 'Open a terminal in this worktree first'
 
 const context = ref<WorkspaceContext>(null)
 const loading = ref(true)
-const terminalId = ref('')
-const runImmediately = ref(true)
 
 
 const lastCommand = ref('')
 const status = ref<{ kind: 'info' | 'error'; text: string } | null>(null)
 
 const tree = ref<DockerTree | null>(null)
-const busyContainers = ref<ReadonlySet<string>>(new Set())
 const logsContainer = ref<TreeContainer | null>(null)
 const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
 const details = ref<Details | null>(null)
@@ -54,24 +48,11 @@ const dialog = ref<DialogRequest | null>(null)
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 let contextSubscription: Subscription | undefined
-let saveTimer: ReturnType<typeof setTimeout> | undefined
-/** Nothing is saved until the stored state is read, or the defaults would overwrite it. */
-let stateLoaded = false
 
-const terminals = computed(() => context.value?.terminals ?? [])
-const canSend = computed(() => terminalId.value !== '')
-
-function applyContext(value: WorkspaceContext): void {
-  context.value = value
-  const ids = terminals.value.map((terminal) => terminal.id)
-  if (!ids.includes(terminalId.value)) {
-    terminalId.value = ids[0] ?? ''
-  }
-}
 
 async function refresh(): Promise<void> {
   try {
-    applyContext(await props.host.readContext())
+    context.value = await props.host.readContext()
   } catch (error) {
     showError(error)
   } finally {
@@ -79,30 +60,9 @@ async function refresh(): Promise<void> {
   }
 }
 
-async function restoreState(): Promise<void> {
-  try {
-    const stored = await props.host.loadState()
-    runImmediately.value = stored?.runImmediately ?? runImmediately.value
-  } catch (error) {
-    showError(error)
-  }
-  // After the watcher has seen the restored values, or it would save them straight back.
-  await nextTick()
-  stateLoaded = true
-}
-
-function currentState(): PanelState {
-  return { runImmediately: runImmediately.value }
-}
-
-function scheduleSave(): void {
-  if (!stateLoaded) {
-    return
-  }
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    props.host.saveState(currentState()).catch(showError)
-  }, SAVE_DELAY_MS)
+function refreshAll(): void {
+  void refresh()
+  void refreshTree()
 }
 
 async function refreshTree(): Promise<void> {
@@ -113,38 +73,29 @@ async function refreshTree(): Promise<void> {
   }
 }
 
-function setBusy(id: string, busy: boolean): void {
-  const next = new Set(busyContainers.value)
-  if (busy) {
-    next.add(id)
-  } else {
-    next.delete(id)
-  }
-  busyContainers.value = next
-}
-
 async function runContainerAction(container: TreeContainer, action: ContainerAction): Promise<void> {
-  setBusy(container.id, true)
   try {
     await props.host.containerAction(container.id, action)
     status.value = { kind: 'info', text: `${container.name}: ${action} done` }
   } catch (error) {
     showError(error)
-  } finally {
-    setBusy(container.id, false)
   }
 }
 
-function sendToTerminal(command: string): void {
-  if (!canSend.value) {
-    status.value = { kind: 'error', text: NO_TERMINAL }
-    return
-  }
-  void send(command)
+function openShell(container: TreeContainer, shell = 'sh'): void {
+  void runInTerminal(
+    `${container.name} ${shell}`,
+    containerShellCommand(container.name, shell),
+    `${shell}:${container.id}`
+  )
 }
 
-function openShell(container: TreeContainer): void {
-  sendToTerminal(containerShellCommand(container.name))
+function openContainer(container: TreeContainer): void {
+  if (isRunning(container)) {
+    openShell(container)
+  } else {
+    status.value = { kind: 'info', text: `${container.name} is not running` }
+  }
 }
 
 function pointAt(project: TreeProject): ComposeTarget {
@@ -261,7 +212,6 @@ async function prune(mode: PruneMode): Promise<void> {
 }
 
 const menuActions: MenuActions = {
-  canSend: () => canSend.value,
   images: () => tree.value?.images ?? [],
   compose: (project, action) => {
     if (action === 'down') {
@@ -270,15 +220,16 @@ const menuActions: MenuActions = {
         message: 'This stops and removes the containers and networks of the project. Volumes stay.',
         confirmLabel: 'Down',
         danger: true,
-        confirm: () => sendToTerminal(projectCommand(pointAt(project), 'down'))
+        confirm: () => void runInTerminal(`${project.name} down`, projectCommand(pointAt(project), 'down'))
       }
       return
     }
-    sendToTerminal(projectCommand(pointAt(project), action))
+    void runInTerminal(`${project.name} ${action}`, projectCommand(pointAt(project), action))
   },
-  composeInTerminalFolder: () => sendToTerminal(projectCommand({ projectName: '', files: [] }, 'up')),
+  composeInWorkspaceFolder: () =>
+    void runInTerminal('compose up', projectCommand({ projectName: '', files: [] }, 'up')),
   service: (project, service, action) =>
-    sendToTerminal(serviceCommand(pointAt(project), action, service.name)),
+    void runInTerminal(`${service.name} ${action}`, serviceCommand(pointAt(project), action, service.name)),
   containerAction: (container, action) => void runContainerAction(container, action),
   removeContainer: (container) => {
     dialog.value = {
@@ -305,18 +256,20 @@ const menuActions: MenuActions = {
       return formatProcesses(titles, processes)
     }),
   copy: (label, text) => void copy(label, text),
-  attach: (container) => sendToTerminal(containerAttachCommand(container.name)),
+  attach: (container) =>
+    void runInTerminal(`${container.name} attach`, containerAttachCommand(container.name)),
   exec: (container) => {
     dialog.value = {
       title: `Exec in ${container.name}`,
-      message: 'The command runs in the chosen terminal.',
+      message: 'The command runs in a new terminal.',
       confirmLabel: 'Run',
       input: { placeholder: 'ls -la /app' },
-      confirm: (command) => sendToTerminal(containerExecCommand(container.name, command))
+      confirm: (command) =>
+        void runInTerminal(`${container.name} exec`, containerExecCommand(container.name, command))
     }
   },
-  shell: (container, shell) => sendToTerminal(containerShellCommand(container.name, shell)),
-  pullImage: (name) => sendToTerminal(imagePullCommand(name)),
+  shell: openShell,
+  pullImage: (name) => void runInTerminal(`pull ${name}`, imagePullCommand(name)),
   removeImage: askToRemoveImage,
   pruneImages: (mode) => void askToPrune(mode)
 }
@@ -333,24 +286,15 @@ function showError(error: unknown): void {
   status.value = { kind: 'error', text: errorText(error) }
 }
 
-async function send(command: string): Promise<void> {
-  if (!canSend.value) {
-    return
-  }
+async function runInTerminal(title: string, command: string, reuseKey?: string): Promise<void> {
   lastCommand.value = command
   try {
-    const accepted = await props.host.sendText(terminalId.value, command, runImmediately.value)
-    status.value = accepted
-      ? { kind: 'info', text: runImmediately.value ? 'Sent to terminal' : 'Typed into terminal' }
-      : { kind: 'error', text: 'The terminal did not accept the command' }
+    await props.host.openTerminal({ title, command, ...(reuseKey ? { reuseKey } : {}) })
+    status.value = { kind: 'info', text: `Opened in a terminal: ${title}` }
   } catch (error) {
     showError(error)
-    void refresh()
   }
 }
-
-watch(terminalId, () => (status.value = null))
-watch(runImmediately, scheduleSave)
 
 function onVisible(): void {
   if (document.visibilityState === 'visible') {
@@ -360,8 +304,7 @@ function onVisible(): void {
 
 onMounted(() => {
   void refresh()
-  void restoreState()
-  contextSubscription = props.host.onContextChanged(applyContext)
+  contextSubscription = props.host.onContextChanged((value) => (context.value = value))
   treeSubscription = props.host.onTreeChanged((value) => {
     if (value) {
       tree.value = value
@@ -377,7 +320,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  clearTimeout(saveTimer)
   clearInterval(treePoll)
   treeSubscription?.dispose()
   contextSubscription?.dispose()
@@ -396,7 +338,7 @@ onBeforeUnmount(() => {
         </template>
         <span v-else-if="!loading" class="muted">No focused worktree</span>
       </div>
-      <button class="icon-button" title="Refresh terminals" data-test="refresh" @click="refresh">
+      <button class="icon-button" title="Refresh" data-test="refresh" @click="refreshAll">
         <ActionIcon name="restart" />
       </button>
     </header>
@@ -405,10 +347,7 @@ onBeforeUnmount(() => {
       <h2 class="title">Services</h2>
       <ServicesTree
         :tree="tree"
-        :busy="busyContainers"
-        @action="runContainerAction"
-        @shell="openShell"
-        @logs="(container) => (logsContainer = container)"
+        @open="openContainer"
         @menu="openMenu"
       />
     </section>
@@ -422,22 +361,6 @@ onBeforeUnmount(() => {
       :container="logsContainer"
       @close="logsContainer = null"
     />
-
-    <section class="section">
-      <label class="field">
-        <span class="label">Terminal</span>
-        <select v-model="terminalId" :disabled="terminals.length === 0" data-test="terminal">
-          <option v-if="terminals.length === 0" value="">Open a terminal in this worktree</option>
-          <option v-for="(terminal, index) in terminals" :key="terminal.id" :value="terminal.id">
-            {{ terminal.title ?? `Terminal ${index + 1}` }}
-          </option>
-        </select>
-      </label>
-      <label class="check">
-        <input v-model="runImmediately" type="checkbox" data-test="run-immediately" />
-        Run immediately (otherwise only type the command)
-      </label>
-    </section>
 
     <footer class="footer">
       <code v-if="lastCommand" class="command" data-test="last-command">{{ lastCommand }}</code>
@@ -528,22 +451,6 @@ select {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--orca-muted-foreground);
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.label {
-  font-size: 12px;
-  color: var(--orca-muted-foreground);
-}
-.check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
   color: var(--orca-muted-foreground);
 }
 .icon-button {

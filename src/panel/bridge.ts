@@ -9,9 +9,8 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
-  PANEL_STATE_KEY,
+  OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
-  SEND_TEXT_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
   type ContainerAction,
@@ -22,30 +21,25 @@ import {
   type LogsPayload,
   type LogsRenewOutput,
   type LogsStartOutput,
-  type PanelState,
   type ProcessesOutput,
   type PruneMode,
   type PrunePreview,
   type PruneResult,
-  type SendTextInput,
-  type SendTextOutput
+  type OpenTerminalInput
 } from '../shared/protocol'
 
 /** The panel's view of Orca: the frame API `window.orca`. Anything a panel may not do itself
- * (typing into a terminal, talking to Docker) goes to the plugin's worker via `plugin.request`. */
+ * (opening a terminal, talking to Docker) goes to the plugin's worker via `plugin.request`. */
 
 export type WorkspaceContext = {
   branch: string
   displayName: string
-  terminals: { id: string; title?: string }[]
 } | null
 
 export type HostBridge = {
   readContext(): Promise<WorkspaceContext>
   onContextChanged(listener: (context: WorkspaceContext) => void): Subscription
-  loadState(): Promise<Partial<PanelState> | null>
-  saveState(state: PanelState): Promise<void>
-  sendText(terminalId: string, text: string, enter: boolean): Promise<boolean>
+  openTerminal(input: OpenTerminalInput): Promise<void>
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
   onTreeChanged(listener: (tree: DockerTree | null) => void): Subscription
@@ -87,19 +81,8 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
         listener(context)
       )
     },
-    async loadState() {
-      const stored = (await orca.host.call('storage.get', { key: PANEL_STATE_KEY })) as {
-        value: Partial<PanelState> | null
-      } | null
-      return stored?.value ?? null
-    },
-    async saveState(state) {
-      await orca.host.call('storage.set', { key: PANEL_STATE_KEY, value: state })
-    },
-    async sendText(terminalId, text, enter) {
-      const input: SendTextInput = { terminalId, text, enter }
-      const output = (await orca.plugin.request(SEND_TEXT_REQUEST, input)) as SendTextOutput
-      return output.accepted
+    async openTerminal(input) {
+      await orca.plugin.request(OPEN_TERMINAL_REQUEST, input)
     },
     async loadTree() {
       return (await orca.plugin.request(TREE_REQUEST)) as DockerTree

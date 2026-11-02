@@ -9,9 +9,9 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
   PRUNE_MODES,
-  SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type ContainerAction,
   type ContainerActionInput,
@@ -29,18 +29,17 @@ import {
   type PruneMode,
   type PrunePreview,
   type PruneResult,
-  type SendTextInput,
-  type SendTextOutput
+  type OpenTerminalInput
 } from '../shared/protocol'
 
 /** Requests the panel sends through `orca.plugin.request`. */
 
 type PanelRequestsApi = {
   panels: { handle(name: string, handler: (input: unknown) => unknown): void }
-  host: { call(method: string, params?: unknown): Promise<unknown> }
 }
 
 type PanelRequestsDeps = {
+  terminals: { open(input: OpenTerminalInput): Promise<void> }
   tree: { current(): Promise<DockerTree> }
   containerAction(id: string, action: ContainerAction): Promise<void>
   inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
@@ -111,13 +110,13 @@ function isContainerActionInput(input: unknown): input is ContainerActionInput {
   )
 }
 
-function isSendTextInput(input: unknown): input is SendTextInput {
-  const value = input as Partial<SendTextInput> | null
+function isOpenTerminalInput(input: unknown): input is OpenTerminalInput {
+  const value = input as Partial<OpenTerminalInput> | null
   return (
-    typeof value?.terminalId === 'string' &&
-    value.terminalId !== '' &&
-    typeof value.text === 'string' &&
-    typeof value.enter === 'boolean'
+    typeof value?.title === 'string' &&
+    typeof value.command === 'string' &&
+    value.command !== '' &&
+    (value.reuseKey === undefined || typeof value.reuseKey === 'string')
   )
 }
 
@@ -198,10 +197,11 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
     return null
   })
 
-  orca.panels.handle(SEND_TEXT_REQUEST, async (input) => {
-    if (!isSendTextInput(input)) {
-      throw invalidParams(SEND_TEXT_REQUEST)
+  orca.panels.handle(OPEN_TERMINAL_REQUEST, async (input) => {
+    if (!isOpenTerminalInput(input)) {
+      throw invalidParams(OPEN_TERMINAL_REQUEST)
     }
-    return (await orca.host.call('terminal.sendText', input)) as SendTextOutput
+    await deps.terminals.open(input)
+    return null
   })
 }

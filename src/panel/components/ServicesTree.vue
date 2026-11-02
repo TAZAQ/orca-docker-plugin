@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type {
-  ContainerAction,
-  DockerTree,
-  TreeContainer,
-  TreeProject,
-  TreeService
-} from '../../shared/protocol'
+import type { DockerTree, TreeContainer, TreeProject, TreeService } from '../../shared/protocol'
 import {
   containerDot,
   formatSize,
@@ -14,23 +8,22 @@ import {
   isRunning,
   runningCount
 } from '../container-state'
-import { filterTree, isTreeEmpty } from '../tree-filter'
 import type { MenuTarget } from '../menus'
-import ContainerActions from './ContainerActions.vue'
+import { filterTree, isTreeEmpty } from '../tree-filter'
 import ContainerLine from './ContainerLine.vue'
 import TreeIcon from './TreeIcon.vue'
 
-const props = defineProps<{ tree: DockerTree | null; busy: ReadonlySet<string> }>()
+const props = defineProps<{ tree: DockerTree | null }>()
 const emit = defineEmits<{
-  action: [container: TreeContainer, action: ContainerAction]
-  shell: [container: TreeContainer]
-  logs: [container: TreeContainer]
+  open: [container: TreeContainer]
   menu: [event: MouseEvent, target: MenuTarget]
 }>()
 
 const ROOT = 'docker'
 
 const expanded = ref(new Set([ROOT]))
+/** The row last clicked. A container under a service and under Containers are two rows. */
+const active = ref<string | null>(null)
 const search = ref('')
 const searching = computed(() => search.value.trim() !== '')
 const shown = computed(() => (props.tree ? filterTree(props.tree, search.value) : null))
@@ -47,11 +40,30 @@ function isGroupShown(items: readonly unknown[]): boolean {
 }
 
 function toggle(key: string): void {
+  active.value = key
   const next = new Set(expanded.value)
   if (!next.delete(key)) {
     next.add(key)
   }
   expanded.value = next
+}
+
+function openContainer(key: string, container: TreeContainer): void {
+  active.value = key
+  emit('open', container)
+}
+
+function clickService(key: string, service: TreeService): void {
+  active.value = key
+  const [only] = service.containers
+  if (service.containers.length === 1 && only) {
+    emit('open', only)
+  }
+}
+
+function showMenu(event: MouseEvent, key: string, target: MenuTarget): void {
+  active.value = key
+  emit('menu', event, target)
 }
 
 function containersOf(project: TreeProject): TreeContainer[] {
@@ -73,7 +85,6 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
     ? { kind: 'container', container: only, compose: { project, service } }
     : { kind: 'service', project, service }
 }
-
 </script>
 
 <template>
@@ -92,9 +103,10 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
       <li>
         <button
           class="row"
+          :class="{ active: active === ROOT }"
           data-test="group-docker"
           @click="toggle(ROOT)"
-          @contextmenu.prevent="emit('menu', $event, { kind: 'docker' })"
+          @contextmenu.prevent="showMenu($event, ROOT, { kind: 'docker' })"
         >
           <span class="chevron" :class="{ open: isOpen(ROOT) }" />
           <TreeIcon name="docker" :active="!tree.error" />
@@ -105,9 +117,10 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
           <li v-for="project in shown.projects" :key="project.name">
             <button
               class="row"
+              :class="{ active: active === `project:${project.name}` }"
               :data-test="`project-row-${project.name}`"
               @click="toggle(`project:${project.name}`)"
-              @contextmenu.prevent="emit('menu', $event, { kind: 'project', project })"
+              @contextmenu.prevent="showMenu($event, `project:${project.name}`, { kind: 'project', project })"
             >
               <span class="chevron" :class="{ open: isOpen(`project:${project.name}`) }" />
               <TreeIcon
@@ -120,36 +133,28 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
             </button>
             <ul v-if="isOpen(`project:${project.name}`)" class="tree nested">
               <li v-for="service in project.services" :key="service.name">
-                <div class="line">
-                  <span
-                    class="row static"
-                    :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
-                    :data-test="`service-row-${project.name}-${service.name}`"
-                    @contextmenu.prevent="emit('menu', $event, serviceTarget(project, service))"
-                  >
-                    <span class="dot" :class="containerDot(service.containers)" />
-                    <span class="name">{{ service.name }}</span>
-                    <span class="meta">{{ serviceMeta(service) }}</span>
-                  </span>
-                  <ContainerActions
-                    v-if="service.containers.length === 1"
-                    :container="service.containers[0]!"
-                    :busy="busy.has(service.containers[0]!.id)"
-                    @action="(action) => emit('action', service.containers[0]!, action)"
-                    @shell="emit('shell', service.containers[0]!)"
-                    @logs="emit('logs', service.containers[0]!)"
-                  />
-                </div>
+                <button
+                  class="row"
+                  :class="{ active: active === `service:${project.name}/${service.name}` }"
+                  :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
+                  :data-test="`service-row-${project.name}-${service.name}`"
+                  @click="clickService(`service:${project.name}/${service.name}`, service)"
+                  @contextmenu.prevent="
+                    showMenu($event, `service:${project.name}/${service.name}`, serviceTarget(project, service))
+                  "
+                >
+                  <span class="dot" :class="containerDot(service.containers)" />
+                  <span class="name">{{ service.name }}</span>
+                  <span class="meta">{{ serviceMeta(service) }}</span>
+                </button>
                 <ul v-if="service.containers.length > 1" class="tree nested">
                   <ContainerLine
                     v-for="container in service.containers"
                     :key="container.id"
                     :container="container"
-                    :busy="busy.has(container.id)"
-                    @action="(action) => emit('action', container, action)"
-                    @shell="emit('shell', container)"
-                    @logs="emit('logs', container)"
-                    @menu="(event) => emit('menu', event, { kind: 'container', container })"
+                    :active="active === `compose:${container.id}`"
+                    @open="openContainer(`compose:${container.id}`, container)"
+                    @menu="(event) => showMenu(event, `compose:${container.id}`, { kind: 'container', container })"
                   />
                 </ul>
               </li>
@@ -157,7 +162,12 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
           </li>
 
           <li v-if="isGroupShown(shown.devContainers)">
-            <button class="row" data-test="group-devContainers" @click="toggle('devContainers')">
+            <button
+              class="row"
+              :class="{ active: active === 'devContainers' }"
+              data-test="group-devContainers"
+              @click="toggle('devContainers')"
+            >
               <span class="chevron" :class="{ open: isOpen('devContainers'), hidden: shown.devContainers.length === 0 }" />
               <TreeIcon name="devContainers" :active="shown.devContainers.some(isRunning)" />
               <span class="name">Dev Containers</span>
@@ -167,17 +177,20 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
                 v-for="container in shown.devContainers"
                 :key="container.id"
                 :container="container"
-                :busy="busy.has(container.id)"
-                @action="(action) => emit('action', container, action)"
-                @shell="emit('shell', container)"
-                @logs="emit('logs', container)"
-                @menu="(event) => emit('menu', event, { kind: 'container', container })"
+                :active="active === `dev:${container.id}`"
+                @open="openContainer(`dev:${container.id}`, container)"
+                @menu="(event) => showMenu(event, `dev:${container.id}`, { kind: 'container', container })"
               />
             </ul>
           </li>
 
           <li v-if="isGroupShown(shown.containers)">
-            <button class="row" data-test="group-containers" @click="toggle('containers')">
+            <button
+              class="row"
+              :class="{ active: active === 'containers' }"
+              data-test="group-containers"
+              @click="toggle('containers')"
+            >
               <span class="chevron" :class="{ open: isOpen('containers'), hidden: shown.containers.length === 0 }" />
               <TreeIcon name="containers" />
               <span class="name">Containers</span>
@@ -188,11 +201,9 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
                 v-for="container in shown.containers"
                 :key="container.id"
                 :container="container"
-                :busy="busy.has(container.id)"
-                @action="(action) => emit('action', container, action)"
-                @shell="emit('shell', container)"
-                @logs="emit('logs', container)"
-                @menu="(event) => emit('menu', event, { kind: 'container', container })"
+                :active="active === `all:${container.id}`"
+                @open="openContainer(`all:${container.id}`, container)"
+                @menu="(event) => showMenu(event, `all:${container.id}`, { kind: 'container', container })"
               />
             </ul>
           </li>
@@ -200,9 +211,10 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
           <li v-if="isGroupShown(shown.images)">
             <button
               class="row"
+              :class="{ active: active === 'images' }"
               data-test="group-images"
               @click="toggle('images')"
-              @contextmenu.prevent="emit('menu', $event, { kind: 'images' })"
+              @contextmenu.prevent="showMenu($event, 'images', { kind: 'images' })"
             >
               <span class="chevron" :class="{ open: isOpen('images'), hidden: shown.images.length === 0 }" />
               <TreeIcon name="images" />
@@ -210,46 +222,70 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
               <span class="meta">{{ shown.images.length }}</span>
             </button>
             <ul v-if="isOpen('images')" class="tree nested">
-              <li
-                v-for="image in shown.images"
-                :key="image.id"
-                class="row static"
-                :title="image.tags.join('\n')"
-                :data-test="`image-row-${image.name}`"
-                @contextmenu.prevent="emit('menu', $event, { kind: 'image', image })"
-              >
-                <span class="name">{{ image.name }}</span>
-                <span class="meta">{{ formatSize(image.size) }}</span>
+              <li v-for="image in shown.images" :key="image.id">
+                <button
+                  class="row"
+                  :class="{ active: active === `image:${image.id}` }"
+                  :title="image.tags.join('\n')"
+                  :data-test="`image-row-${image.name}`"
+                  @click="active = `image:${image.id}`"
+                  @contextmenu.prevent="showMenu($event, `image:${image.id}`, { kind: 'image', image })"
+                >
+                  <span class="name">{{ image.name }}</span>
+                  <span class="meta">{{ formatSize(image.size) }}</span>
+                </button>
               </li>
             </ul>
           </li>
 
           <li v-if="isGroupShown(shown.networks)">
-            <button class="row" data-test="group-networks" @click="toggle('networks')">
+            <button
+              class="row"
+              :class="{ active: active === 'networks' }"
+              data-test="group-networks"
+              @click="toggle('networks')"
+            >
               <span class="chevron" :class="{ open: isOpen('networks'), hidden: shown.networks.length === 0 }" />
               <TreeIcon name="networks" />
               <span class="name">Networks</span>
               <span class="meta">{{ shown.networks.length }}</span>
             </button>
             <ul v-if="isOpen('networks')" class="tree nested">
-              <li v-for="network in shown.networks" :key="network.id" class="row static">
-                <span class="name">{{ network.name }}</span>
-                <span class="meta">{{ network.driver }}</span>
+              <li v-for="network in shown.networks" :key="network.id">
+                <button
+                  class="row"
+                  :class="{ active: active === `network:${network.id}` }"
+                  @click="active = `network:${network.id}`"
+                >
+                  <span class="name">{{ network.name }}</span>
+                  <span class="meta">{{ network.driver }}</span>
+                </button>
               </li>
             </ul>
           </li>
 
           <li v-if="isGroupShown(shown.volumes)">
-            <button class="row" data-test="group-volumes" @click="toggle('volumes')">
+            <button
+              class="row"
+              :class="{ active: active === 'volumes' }"
+              data-test="group-volumes"
+              @click="toggle('volumes')"
+            >
               <span class="chevron" :class="{ open: isOpen('volumes'), hidden: shown.volumes.length === 0 }" />
               <TreeIcon name="volumes" />
               <span class="name">Volumes</span>
               <span class="meta">{{ shown.volumes.length }}</span>
             </button>
             <ul v-if="isOpen('volumes')" class="tree nested">
-              <li v-for="volume in shown.volumes" :key="volume.name" class="row static">
-                <span class="name">{{ volume.name }}</span>
-                <span class="meta">{{ volume.driver }}</span>
+              <li v-for="volume in shown.volumes" :key="volume.name">
+                <button
+                  class="row"
+                  :class="{ active: active === `volume:${volume.name}` }"
+                  @click="active = `volume:${volume.name}`"
+                >
+                  <span class="name">{{ volume.name }}</span>
+                  <span class="meta">{{ volume.driver }}</span>
+                </button>
               </li>
             </ul>
           </li>
@@ -293,10 +329,12 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
   text-align: left;
   cursor: pointer;
 }
-.row.static {
-  cursor: default;
+/* Stays lit under the context menu, so it is clear what the menu is for. */
+.row.active {
+  background: var(--orca-accent);
+  color: var(--orca-accent-foreground);
 }
-.row:hover:not(.static) {
+.row:hover {
   background: var(--orca-accent);
   color: var(--orca-accent-foreground);
 }
@@ -313,22 +351,6 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
 }
 .chevron.hidden {
   visibility: hidden;
-}
-.line {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.line > .actions {
-  display: none;
-}
-.line:hover > .actions,
-.line:focus-within > .actions {
-  display: flex;
-}
-.line:hover > .row .meta,
-.line:focus-within > .row .meta {
-  display: none;
 }
 .dot {
   flex: none;

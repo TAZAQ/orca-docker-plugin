@@ -8,7 +8,9 @@ import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docke
 import { previewPrune, removeImageWithContainers } from './docker-images'
 import { EventWatcher } from './event-watcher'
 import { LogStreams } from './log-streams'
+import { orcaCli } from './orca-cli'
 import { registerPanelRequests } from './panel-requests'
+import { TerminalLauncher, type FocusedContext } from './terminal-launcher'
 
 /** The `activate(orca)` surface of Orca's plugin worker. */
 export type OrcaApi = {
@@ -116,7 +118,13 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     post: (payload) => orca.panels.post(LOGS_EVENT, payload)
   })
 
+  const terminals = new TerminalLauncher({
+    cli: orcaCli(homedir()),
+    readContext: async () => (await orca.host.call('workspace.readContext')) as FocusedContext
+  })
+
   registerPanelRequests(orca, {
+    terminals,
     tree,
     logs,
     containerAction: async (id, action) => (await api()).containerAction(id, action),
