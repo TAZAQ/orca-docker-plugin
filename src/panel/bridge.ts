@@ -4,6 +4,7 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  PANEL_STATE_KEY,
   SEND_TEXT_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
@@ -13,6 +14,7 @@ import {
   type LogsPayload,
   type LogsRenewOutput,
   type LogsStartOutput,
+  type PanelState,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -23,11 +25,14 @@ import {
 export type WorkspaceContext = {
   branch: string
   displayName: string
-  terminals: { id: string }[]
+  terminals: { id: string; title?: string }[]
 } | null
 
 export type HostBridge = {
   readContext(): Promise<WorkspaceContext>
+  onContextChanged(listener: (context: WorkspaceContext) => void): Subscription
+  loadState(): Promise<Partial<PanelState> | null>
+  saveState(state: PanelState): Promise<void>
   sendText(terminalId: string, text: string, enter: boolean): Promise<boolean>
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
@@ -41,6 +46,7 @@ export type HostBridge = {
 export type Subscription = { dispose(): void }
 
 export type OrcaFrameApi = {
+  on(event: string, listener: (payload: never) => void): Subscription
   host: { call(method: string, params?: unknown): Promise<unknown> }
   plugin: {
     request(name: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>
@@ -55,6 +61,20 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
   return {
     async readContext() {
       return (await orca.host.call('workspace.readContext')) as WorkspaceContext
+    },
+    onContextChanged(listener) {
+      return orca.on('workspace.changed', ({ context }: { context: WorkspaceContext }) =>
+        listener(context)
+      )
+    },
+    async loadState() {
+      const stored = (await orca.host.call('storage.get', { key: PANEL_STATE_KEY })) as {
+        value: Partial<PanelState> | null
+      } | null
+      return stored?.value ?? null
+    },
+    async saveState(state) {
+      await orca.host.call('storage.set', { key: PANEL_STATE_KEY, value: state })
     },
     async sendText(terminalId, text, enter) {
       const input: SendTextInput = { terminalId, text, enter }

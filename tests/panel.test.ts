@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, SEND_TEXT_REQUEST, type DockerTree, type LogsPayload } from '../src/shared/protocol'
+import { emptyTree, SEND_TEXT_REQUEST, type DockerTree, type LogsPayload, type PanelState } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -26,11 +26,18 @@ const tree: DockerTree = {
 }
 const treeListeners: ((value: DockerTree | null) => void)[] = []
 const logListeners: ((payload: LogsPayload) => void)[] = []
+const contextListeners: ((value: WorkspaceContext) => void)[] = []
 
 function fakeHost(context: WorkspaceContext) {
   const sent: { terminalId: string; text: string; enter: boolean }[] = []
   const host: HostBridge = {
     readContext: vi.fn(async () => context),
+    onContextChanged: vi.fn((listener: (value: WorkspaceContext) => void) => {
+      contextListeners.push(listener)
+      return { dispose: () => undefined }
+    }),
+    loadState: vi.fn(async (): Promise<Partial<PanelState> | null> => null),
+    saveState: vi.fn(async () => undefined),
     sendText: vi.fn(async (terminalId: string, text: string, enter: boolean) => {
       sent.push({ terminalId, text, enter })
       return true
@@ -278,6 +285,65 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="logs-ended"]').text()).toContain('daemon went away')
   })
 
+  it('follows the terminals of the workspace without a refresh', async () => {
+    const { host, sent } = fakeHost({ ...workspace, terminals: [] })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="project-up"]').attributes('disabled')).toBeDefined()
+    contextListeners.at(-1)!({ ...workspace, terminals: [{ id: 't-9', title: 'server' }] })
+    await flushPromises()
+    expect(wrapper.get('[data-test="terminal"]').text()).toBe('server')
+    await wrapper.get('[data-test="project-up"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.terminalId).toBe('t-9')
+  })
+
+  it('moves on when the chosen terminal closes', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="terminal"]').setValue('t-2')
+    contextListeners.at(-1)!({ ...workspace, terminals: [{ id: 't-1' }] })
+    await flushPromises()
+    expect((wrapper.get('[data-test="terminal"]').element as HTMLSelectElement).value).toBe('t-1')
+  })
+
+  it('does not repeat a branch that is the name of the workspace', async () => {
+    const { host } = fakeHost({ ...workspace, displayName: 'master', branch: 'master' })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.find('.branch').exists()).toBe(false)
+  })
+
+  it('restores compose options and recent services', async () => {
+    const { host, sent } = fakeHost(workspace)
+    host.loadState = vi.fn(async () => ({
+      projectName: 'brave',
+      recentServices: ['postgres'],
+      runImmediately: false
+    }))
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('postgres')
+    await wrapper.get('[data-test="project-ps"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({ terminalId: 't-1', text: 'docker compose -p brave ps -a', enter: false })
+  })
+
+  it('saves what changed, but never the defaults over what is stored', async () => {
+    vi.useFakeTimers()
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(host.saveState).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="project-name"]').setValue('brave')
+    await vi.advanceTimersByTimeAsync(1000)
+    vi.useRealTimers()
+    expect(host.saveState).toHaveBeenCalledTimes(1)
+    expect(host.saveState).toHaveBeenCalledWith(expect.objectContaining({ projectName: 'brave' }))
+  })
+
   it('shows why the tree is unavailable', async () => {
     const { host } = fakeHost(workspace)
     host.loadTree = vi.fn(async () => {
@@ -304,6 +370,7 @@ describe('panel', () => {
 describe('createHostBridge', () => {
   function fakeOrca() {
     return {
+      on: vi.fn(() => ({ dispose: () => undefined })),
       host: { call: vi.fn(async (): Promise<unknown> => workspace) },
       plugin: {
         request: vi.fn(async (): Promise<unknown> => ({ accepted: true })),
@@ -327,6 +394,23 @@ describe('createHostBridge', () => {
       enter: true
     })
     expect(orca.host.call).not.toHaveBeenCalled()
+  })
+
+  it('hears workspace changes from Orca', () => {
+    const orca = fakeOrca()
+    const listener = vi.fn()
+    createHostBridge(orca).onContextChanged(listener)
+    const [event, handler] = orca.on.mock.calls[0] as unknown as [string, (payload: unknown) => void]
+    expect(event).toBe('workspace.changed')
+    handler({ context: workspace })
+    expect(listener).toHaveBeenCalledWith(workspace)
+  })
+
+  it('keeps the panel state in the plugin storage', async () => {
+    const orca = fakeOrca()
+    orca.host.call.mockResolvedValue({ value: { projectName: 'brave' } })
+    await expect(createHostBridge(orca).loadState()).resolves.toEqual({ projectName: 'brave' })
+    expect(orca.host.call).toHaveBeenCalledWith('storage.get', { key: 'panelState' })
   })
 
   it('passes a worker failure on to the caller', async () => {

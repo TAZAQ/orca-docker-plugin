@@ -82,3 +82,14 @@ export type LogsRenewOutput = { alive: boolean }
 export type LogsPayload =
   | { streamId: string; kind: 'text'; text: string }
   | { streamId: string; kind: 'ended'; error?: string }
+
+export const PANEL_STATE_KEY = 'panelState'
+
+/** What the panel remembers between openings, in the plugin's own storage. */
+export type PanelState = {
+  projectName: string
+  files: string
+  profiles: string
+  recentServices: string[]
+  runImmediately: boolean
+}

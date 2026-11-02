@@ -4,6 +4,7 @@ import {
   emptyTree,
   type ContainerAction,
   type DockerTree,
+  type PanelState,
   type TreeContainer,
   type TreeProject,
   type TreeService
@@ -25,13 +26,13 @@ import ServicesTree from './components/ServicesTree.vue'
 const props = defineProps<{ host: HostBridge }>()
 
 const TREE_POLL_MS = 30_000
+const SAVE_DELAY_MS = 500
 
 const context = ref<WorkspaceContext>(null)
 const loading = ref(true)
 const terminalId = ref('')
 const runImmediately = ref(true)
 
-// Not persisted yet, so these live only while the panel is open.
 const projectName = ref('')
 const files = ref('')
 const profiles = ref('')
@@ -48,6 +49,10 @@ const busyContainers = ref<ReadonlySet<string>>(new Set())
 const logsContainer = ref<TreeContainer | null>(null)
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
+let contextSubscription: Subscription | undefined
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+/** Nothing is saved until the stored state is read, or the defaults would overwrite it. */
+let stateLoaded = false
 
 const target = computed<ComposeTarget>(() => ({
   projectName: projectName.value,
@@ -58,18 +63,56 @@ const terminals = computed(() => context.value?.terminals ?? [])
 const canSend = computed(() => terminalId.value !== '')
 const hasService = computed(() => service.value.trim() !== '')
 
+function applyContext(value: WorkspaceContext): void {
+  context.value = value
+  const ids = terminals.value.map((terminal) => terminal.id)
+  if (!ids.includes(terminalId.value)) {
+    terminalId.value = ids[0] ?? ''
+  }
+}
+
 async function refresh(): Promise<void> {
   try {
-    context.value = await props.host.readContext()
-    const ids = terminals.value.map((terminal) => terminal.id)
-    if (!ids.includes(terminalId.value)) {
-      terminalId.value = ids[0] ?? ''
-    }
+    applyContext(await props.host.readContext())
   } catch (error) {
     showError(error)
   } finally {
     loading.value = false
   }
+}
+
+async function restoreState(): Promise<void> {
+  try {
+    const stored = await props.host.loadState()
+    projectName.value = stored?.projectName ?? projectName.value
+    files.value = stored?.files ?? files.value
+    profiles.value = stored?.profiles ?? profiles.value
+    recentServices.value = stored?.recentServices ?? recentServices.value
+    runImmediately.value = stored?.runImmediately ?? runImmediately.value
+  } catch (error) {
+    showError(error)
+  }
+  stateLoaded = true
+}
+
+function currentState(): PanelState {
+  return {
+    projectName: projectName.value,
+    files: files.value,
+    profiles: profiles.value,
+    recentServices: recentServices.value,
+    runImmediately: runImmediately.value
+  }
+}
+
+function scheduleSave(): void {
+  if (!stateLoaded) {
+    return
+  }
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    props.host.saveState(currentState()).catch(showError)
+  }, SAVE_DELAY_MS)
 }
 
 async function refreshTree(): Promise<void> {
@@ -182,6 +225,7 @@ const serviceActions: { action: ServiceAction; label: string; icon: IconName }[]
 ]
 
 watch(terminalId, () => (status.value = null))
+watch([projectName, files, profiles, recentServices, runImmediately], scheduleSave)
 
 function onVisible(): void {
   if (document.visibilityState === 'visible') {
@@ -191,6 +235,8 @@ function onVisible(): void {
 
 onMounted(() => {
   void refresh()
+  void restoreState()
+  contextSubscription = props.host.onContextChanged(applyContext)
   treeSubscription = props.host.onTreeChanged((value) => {
     if (value) {
       tree.value = value
@@ -207,8 +253,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(confirmTimer)
+  clearTimeout(saveTimer)
   clearInterval(treePoll)
   treeSubscription?.dispose()
+  contextSubscription?.dispose()
   window.removeEventListener('focus', refresh)
   document.removeEventListener('visibilitychange', onVisible)
 })
@@ -220,7 +268,7 @@ onBeforeUnmount(() => {
       <div class="workspace">
         <template v-if="context">
           <span class="workspace-name">{{ context.displayName }}</span>
-          <span class="branch">{{ context.branch }}</span>
+          <span v-if="context.branch !== context.displayName" class="branch">{{ context.branch }}</span>
         </template>
         <span v-else-if="!loading" class="muted">No focused worktree</span>
       </div>
@@ -255,7 +303,7 @@ onBeforeUnmount(() => {
         <select v-model="terminalId" :disabled="terminals.length === 0" data-test="terminal">
           <option v-if="terminals.length === 0" value="">Open a terminal in this worktree</option>
           <option v-for="(terminal, index) in terminals" :key="terminal.id" :value="terminal.id">
-            Terminal {{ index + 1 }}
+            {{ terminal.title ?? `Terminal ${index + 1}` }}
           </option>
         </select>
       </label>
