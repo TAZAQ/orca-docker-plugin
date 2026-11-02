@@ -5,6 +5,8 @@ import {
   type ContainerAction,
   type DockerTree,
   type PanelState,
+  type PruneMode,
+  type TreeImage,
   type TreeContainer,
   type TreeProject
 } from '../shared/protocol'
@@ -25,6 +27,7 @@ import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
 import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
+import { formatSize } from './container-state'
 import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget } from './menus'
 
 const props = defineProps<{ host: HostBridge }>()
@@ -188,6 +191,71 @@ async function copy(label: string, text: string): Promise<void> {
     : { kind: 'error', text: `Could not copy. ${label}: ${text}` }
 }
 
+const PRUNE_LIST_MAX = 100
+
+function askToRemoveImage(image: TreeImage): void {
+  const containers = (tree.value?.containers ?? []).filter((item) => item.imageId === image.id)
+  const tags = image.tags.length > 1 ? ` All its tags go too: ${image.tags.join(', ')}.` : ''
+  dialog.value = {
+    title: `Remove ${image.name}?`,
+    message:
+      containers.length > 0
+        ? `All ${containers.length} containers based on this image will be removed too, even running ones, and whatever they keep outside volumes is lost.${tags}`
+        : `No container uses this image.${tags}`,
+    items: containers.map((item) => `${item.name} (${item.status})`),
+    confirmLabel: containers.length > 0 ? 'Remove image and containers' : 'Remove image',
+    danger: true,
+    confirm: () =>
+      void removeImage(
+        image,
+        containers.map((item) => item.id)
+      )
+  }
+}
+
+async function removeImage(image: TreeImage, containerIds: string[]): Promise<void> {
+  status.value = { kind: 'info', text: `Removing ${image.name}…` }
+  try {
+    await props.host.removeImage(image.id, containerIds)
+    status.value = { kind: 'info', text: `${image.name} removed` }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+async function askToPrune(mode: PruneMode): Promise<void> {
+  try {
+    const { images } = await props.host.previewPrune(mode)
+    if (images.length === 0) {
+      status.value = { kind: 'info', text: `No ${mode} images to remove` }
+      return
+    }
+    const total = formatSize(images.reduce((sum, image) => sum + image.size, 0))
+    const shown = images.slice(0, PRUNE_LIST_MAX).map((image) => `${image.name} (${formatSize(image.size)})`)
+    const more = images.length - shown.length
+    dialog.value = {
+      title: `Remove ${images.length} ${mode} images?`,
+      message: `Frees up to ${total}, less where images share layers. Images used by any container stay, even a stopped one.`,
+      items: more > 0 ? [...shown, `…and ${more} more`] : shown,
+      confirmLabel: `Remove ${images.length} images`,
+      danger: true,
+      confirm: () => void prune(mode)
+    }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+async function prune(mode: PruneMode): Promise<void> {
+  status.value = { kind: 'info', text: 'Removing images…' }
+  try {
+    const { removed, reclaimed } = await props.host.pruneImages(mode)
+    status.value = { kind: 'info', text: `Removed ${removed} images, freed ${formatSize(reclaimed)}` }
+  } catch (error) {
+    showError(error)
+  }
+}
+
 const menuActions: MenuActions = {
   canSend: () => canSend.value,
   images: () => tree.value?.images ?? [],
@@ -244,7 +312,9 @@ const menuActions: MenuActions = {
     }
   },
   shell: (container, shell) => sendToTerminal(containerShellCommand(container.name, shell)),
-  pullImage: (name) => sendToTerminal(imagePullCommand(name))
+  pullImage: (name) => sendToTerminal(imagePullCommand(name)),
+  removeImage: askToRemoveImage,
+  pruneImages: (mode) => void askToPrune(mode)
 }
 
 function openMenu(event: MouseEvent, target: MenuTarget): void {

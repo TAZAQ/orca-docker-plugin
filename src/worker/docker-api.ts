@@ -1,5 +1,5 @@
 import { request, type IncomingMessage, type RequestOptions } from 'node:http'
-import type { ContainerAction } from '../shared/protocol'
+import type { ContainerAction, PruneMode, PruneResult } from '../shared/protocol'
 import type { DockerEndpoint } from './docker-endpoint'
 import { LogDecoder } from './log-decoder'
 
@@ -40,6 +40,8 @@ const REQUEST_TIMEOUT_MS = 10_000
 export const LOG_TAIL_LINES = 500
 /** A stop waits out the container's grace period before Docker kills it. */
 export const ACTION_TIMEOUT_MS = 60_000
+/** Pruning walks every image and its layers. */
+export const PRUNE_TIMEOUT_MS = 10 * 60_000
 const NOT_MODIFIED = 304
 /** A request's answer may not exceed 1 MiB, and a file listing has no natural limit. */
 export const EXEC_OUTPUT_MAX_CHARS = 512 * 1024
@@ -122,6 +124,36 @@ export class DockerApi {
 
   containerProcesses(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }> {
     return this.getJson(`/containers/${id}/top`)
+  }
+
+  async forceRemoveContainer(id: string): Promise<void> {
+    const res = await this.open(`/containers/${id}?force=1`, AbortSignal.timeout(ACTION_TIMEOUT_MS), 'DELETE')
+    res.resume()
+  }
+
+  /** Force, because an image with several tags cannot be removed by its id otherwise. */
+  async removeImage(id: string): Promise<void> {
+    const path = `/images/${encodeURIComponent(id)}?force=1`
+    const res = await this.open(path, AbortSignal.timeout(ACTION_TIMEOUT_MS), 'DELETE')
+    res.resume()
+  }
+
+  async pruneImages(mode: PruneMode): Promise<PruneResult> {
+    const filters = encodeURIComponent(JSON.stringify({ dangling: [String(mode === 'dangling')] }))
+    const res = await this.open(`/images/prune?filters=${filters}`, AbortSignal.timeout(PRUNE_TIMEOUT_MS), 'POST')
+    let body = ''
+    res.setEncoding('utf8')
+    for await (const chunk of res) {
+      body += chunk as string
+    }
+    const { ImagesDeleted, SpaceReclaimed } = JSON.parse(body) as {
+      ImagesDeleted: { Deleted?: string }[] | null
+      SpaceReclaimed: number
+    }
+    return {
+      removed: (ImagesDeleted ?? []).filter((item) => item.Deleted !== undefined).length,
+      reclaimed: SpaceReclaimed
+    }
   }
 
   /** Runs a command in a running container and returns what it printed. */

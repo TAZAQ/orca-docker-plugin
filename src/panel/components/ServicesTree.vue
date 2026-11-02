@@ -198,14 +198,26 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
           </li>
 
           <li v-if="isGroupShown(shown.images)">
-            <button class="row" data-test="group-images" @click="toggle('images')">
+            <button
+              class="row"
+              data-test="group-images"
+              @click="toggle('images')"
+              @contextmenu.prevent="emit('menu', $event, { kind: 'images' })"
+            >
               <span class="chevron" :class="{ open: isOpen('images'), hidden: shown.images.length === 0 }" />
               <TreeIcon name="images" />
               <span class="name">Images</span>
               <span class="meta">{{ shown.images.length }}</span>
             </button>
             <ul v-if="isOpen('images')" class="tree nested">
-              <li v-for="image in shown.images" :key="image.id" class="row static" :title="image.tags.join('\n')">
+              <li
+                v-for="image in shown.images"
+                :key="image.id"
+                class="row static"
+                :title="image.tags.join('\n')"
+                :data-test="`image-row-${image.name}`"
+                @contextmenu.prevent="emit('menu', $event, { kind: 'image', image })"
+              >
                 <span class="name">{{ image.name }}</span>
                 <span class="meta">{{ formatSize(image.size) }}</span>
               </li>

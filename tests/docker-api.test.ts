@@ -106,6 +106,42 @@ describe('DockerApi', () => {
     expect(seen[1]).toBe('/containers/c1/logs?follow=1&stdout=1&stderr=1&tail=500')
   })
 
+  it('removes an image by id with force, and a container with force', async () => {
+    const seen: string[] = []
+    const api = await fakeDaemon((url, res, method) => {
+      seen.push(`${method} ${url}`)
+      res.end('[]')
+    })
+    await api.removeImage('sha256:abc')
+    await api.forceRemoveContainer('c1')
+    expect(seen).toEqual(['DELETE /images/sha256%3Aabc?force=1', 'DELETE /containers/c1?force=1'])
+  })
+
+  it.each([
+    ['dangling', '{"dangling":["true"]}'],
+    ['unused', '{"dangling":["false"]}']
+  ] as const)('prunes %s images with the matching filter', async (mode, filter) => {
+    let seen = ''
+    const api = await fakeDaemon((url, res, method) => {
+      seen = `${method} ${decodeURIComponent(url)}`
+      res.end(
+        JSON.stringify({
+          ImagesDeleted: [{ Untagged: 'old:1' }, { Deleted: 'sha256:a' }, { Deleted: 'sha256:b' }],
+          SpaceReclaimed: 500
+        })
+      )
+    })
+    await expect(api.pruneImages(mode)).resolves.toEqual({ removed: 2, reclaimed: 500 })
+    expect(seen).toBe(`POST /images/prune?filters=${filter}`)
+  })
+
+  it('reports a prune that removed nothing', async () => {
+    const api = await fakeDaemon((_url, res) => {
+      res.end(JSON.stringify({ ImagesDeleted: null, SpaceReclaimed: 0 }))
+    })
+    await expect(api.pruneImages('dangling')).resolves.toEqual({ removed: 0, reclaimed: 0 })
+  })
+
   it('reads what a command printed in a container', async () => {
     const seen: string[] = []
     const api = await fakeDaemon((url, res, method) => {

@@ -5,6 +5,7 @@ import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
 import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
 import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
+import { previewPrune, removeImageWithContainers } from './docker-images'
 import { EventWatcher } from './event-watcher'
 import { LogStreams } from './log-streams'
 import { registerPanelRequests } from './panel-requests'
@@ -121,7 +122,11 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     containerAction: async (id, action) => (await api()).containerAction(id, action),
     inspect: async (kind, id) => (await api()).inspect(kind, id),
     processes: async (id) => (await api()).containerProcesses(id),
-    files: async (id, path) => (await api()).execOutput(id, ['ls', '-la', path])
+    files: async (id, path) => (await api()).execOutput(id, ['ls', '-la', path]),
+    removeImage: async (id, containerIds) =>
+      removeImageWithContainers(await api(), id, containerIds),
+    previewPrune: async (mode) => previewPrune(await api(), mode),
+    pruneImages: async (mode) => (await api()).pruneImages(mode)
   })
 
   // Subscribed only so Orca starts the worker early; the watcher is what does the work.

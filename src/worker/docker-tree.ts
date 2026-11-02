@@ -81,7 +81,7 @@ function toTreeContainer(container: DockerContainer): TreeContainer {
 
 const byName = <T extends { name: string }>(a: T, b: T): number => a.name.localeCompare(b.name)
 
-function toTreeImage(image: DockerImage): TreeImage {
+export function toTreeImage(image: DockerImage): TreeImage {
   const tags = (image.RepoTags ?? []).filter((tag) => tag !== '<none>:<none>')
   return {
     id: image.Id,

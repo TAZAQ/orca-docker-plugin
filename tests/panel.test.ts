@@ -48,6 +48,9 @@ function fakeHost(context: WorkspaceContext) {
     inspect: vi.fn(async (): Promise<unknown> => ({ Id: 'abc' })),
     processes: vi.fn(async () => ({ titles: ['PID', 'CMD'], processes: [['1', 'nginx']] })),
     files: vi.fn(async (_id: string, path: string) => `listing of ${path}`),
+    removeImage: vi.fn(async () => undefined),
+    previewPrune: vi.fn(async () => ({ images: [] as { name: string; size: number }[] })),
+    pruneImages: vi.fn(async () => ({ removed: 2, reclaimed: 30_000_000 })),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -363,6 +366,87 @@ describe('panel', () => {
     vi.useRealTimers()
     expect(host.saveState).toHaveBeenCalledTimes(1)
     expect(host.saveState).toHaveBeenCalledWith({ runImmediately: true })
+  })
+
+  async function mountWithImages() {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-images"]').trigger('click')
+    return { host, wrapper }
+  }
+
+  it('warns that removing an image removes its containers, and names them', async () => {
+    const { host, wrapper } = await mountWithImages()
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Image').trigger('click')
+    expect(host.removeImage).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain(
+      'containers based on this image will be removed too, even running ones'
+    )
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('shop-web-1 (Up 5 days)')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.removeImage).toHaveBeenCalledWith('sha256:1', ['abc'])
+    expect(wrapper.get('[data-test="status"]').text()).toBe('nginx:1 removed')
+  })
+
+  it('removes nothing when the warning is cancelled', async () => {
+    const { host, wrapper } = await mountWithImages()
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Image').trigger('click')
+    await wrapper.get('[data-test="dialog-cancel"]').trigger('click')
+    await flushPromises()
+    expect(host.removeImage).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="dialog"]').exists()).toBe(false)
+  })
+
+  it('offers image removal from a container too', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Image').trigger('click')
+    await menuItem(wrapper, 'Remove Image').trigger('click')
+    expect(wrapper.find('[data-test="dialog"]').exists()).toBe(true)
+  })
+
+  it('shows what a prune would remove and only then removes it', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewPrune = vi.fn(async () => ({
+      images: [
+        { name: 'old:1', size: 10_000_000 },
+        { name: 'old:2', size: 20_000_000 }
+      ]
+    }))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Unused Images').trigger('click')
+    await flushPromises()
+    expect(host.previewPrune).toHaveBeenCalledWith('unused')
+    expect(host.pruneImages).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain('30 MB')
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('old:2 (20 MB)')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.pruneImages).toHaveBeenCalledWith('unused')
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Removed 2 images, freed 30 MB')
+  })
+
+  it('says there is nothing to clean instead of asking', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Dangling Images').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="dialog"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="status"]').text()).toBe('No dangling images to remove')
+  })
+
+  it('focuses Cancel, so Enter alone cannot confirm a removal', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host }, attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-test="group-images"]').trigger('click')
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Image').trigger('click')
+    expect(document.activeElement).toBe(wrapper.get('[data-test="dialog-cancel"]').element)
+    wrapper.unmount()
   })
 
   it('asks before Down from the menu', async () => {

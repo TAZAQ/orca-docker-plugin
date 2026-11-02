@@ -1,6 +1,9 @@
 import {
   CONTAINER_ACTION_REQUEST,
   FILES_REQUEST,
+  IMAGE_PRUNE_PREVIEW_REQUEST,
+  IMAGE_PRUNE_REQUEST,
+  IMAGE_REMOVE_REQUEST,
   INSPECT_REQUEST,
   LOGS_EVENT,
   LOGS_RENEW_REQUEST,
@@ -21,6 +24,9 @@ import {
   type LogsStartOutput,
   type PanelState,
   type ProcessesOutput,
+  type PruneMode,
+  type PrunePreview,
+  type PruneResult,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -46,6 +52,9 @@ export type HostBridge = {
   inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
   processes(id: string): Promise<ProcessesOutput>
   files(id: string, path: string): Promise<string>
+  removeImage(id: string, containerIds: string[]): Promise<void>
+  previewPrune(mode: PruneMode): Promise<PrunePreview>
+  pruneImages(mode: PruneMode): Promise<PruneResult>
   startLogs(id: string): Promise<string>
   renewLogs(streamId: string): Promise<boolean>
   stopLogs(streamId: string): Promise<void>
@@ -65,6 +74,8 @@ export type OrcaFrameApi = {
 
 /** Longer than the worker's own limit, so its error arrives rather than a bare timeout. */
 const CONTAINER_ACTION_TIMEOUT_MS = 70_000
+/** The longest Orca lets a request take. A prune may run longer and still finish in the worker. */
+const IMAGE_REQUEST_TIMEOUT_MS = 120_000
 
 export function createHostBridge(orca: OrcaFrameApi): HostBridge {
   return {
@@ -111,6 +122,23 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
     async files(id, path) {
       const output = (await orca.plugin.request(FILES_REQUEST, { id, path })) as FilesOutput
       return output.text
+    },
+    async removeImage(id, containerIds) {
+      await orca.plugin.request(
+        IMAGE_REMOVE_REQUEST,
+        { id, containerIds },
+        { timeoutMs: IMAGE_REQUEST_TIMEOUT_MS }
+      )
+    },
+    async previewPrune(mode) {
+      return (await orca.plugin.request(IMAGE_PRUNE_PREVIEW_REQUEST, { mode })) as PrunePreview
+    },
+    async pruneImages(mode) {
+      return (await orca.plugin.request(
+        IMAGE_PRUNE_REQUEST,
+        { mode },
+        { timeoutMs: IMAGE_REQUEST_TIMEOUT_MS }
+      )) as PruneResult
     },
     async startLogs(id) {
       const output = (await orca.plugin.request(LOGS_START_REQUEST, { id })) as LogsStartOutput

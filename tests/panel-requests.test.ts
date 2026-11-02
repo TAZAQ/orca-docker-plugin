@@ -4,6 +4,9 @@ import {
   CONTAINER_ACTION_REQUEST,
   emptyTree,
   FILES_REQUEST,
+  IMAGE_PRUNE_PREVIEW_REQUEST,
+  IMAGE_PRUNE_REQUEST,
+  IMAGE_REMOVE_REQUEST,
   INSPECT_REQUEST,
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
@@ -20,6 +23,8 @@ function fakeOrca(accepted = true) {
   const tree: DockerTree = emptyTree()
   const containerAction = vi.fn(async () => undefined)
   const files = vi.fn(async () => 'total 0')
+  const removeImage = vi.fn(async () => undefined)
+  const pruneImages = vi.fn(async () => ({ removed: 0, reclaimed: 0 }))
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
     {
@@ -32,7 +37,10 @@ function fakeOrca(accepted = true) {
       logs,
       inspect: async (_kind, id) => ({ Id: id }),
       processes: async () => ({ Titles: ['PID'], Processes: null }),
-      files
+      files,
+      removeImage,
+      previewPrune: async () => ({ images: [] }),
+      pruneImages
     }
   )
   return {
@@ -43,6 +51,8 @@ function fakeOrca(accepted = true) {
     containerAction,
     logs,
     files,
+    removeImage,
+    pruneImages,
     request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }
@@ -133,6 +143,30 @@ describe('registerPanelRequests', () => {
       code: 'invalid_params'
     })
     expect(files).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes an image with the containers the person agreed to', async () => {
+    const { request, removeImage } = fakeOrca()
+    const id = `sha256:${'a'.repeat(64)}`
+    await request(IMAGE_REMOVE_REQUEST, { id, containerIds: ['abcdef012345'] })
+    expect(removeImage).toHaveBeenCalledWith(id, ['abcdef012345'])
+  })
+
+  it.each([
+    [{ id: 'nginx:1', containerIds: [] }],
+    [{ id: `sha256:${'a'.repeat(64)}` }],
+    [{ id: `sha256:${'a'.repeat(64)}`, containerIds: ['../x'] }]
+  ])('refuses image removal for %j', async (input) => {
+    const { request, removeImage } = fakeOrca()
+    await expect(request(IMAGE_REMOVE_REQUEST, input)).rejects.toMatchObject({ code: 'invalid_params' })
+    expect(removeImage).not.toHaveBeenCalled()
+  })
+
+  it('prunes only by a known mode', () => {
+    const { request, pruneImages } = fakeOrca()
+    expect(() => request(IMAGE_PRUNE_REQUEST, { mode: 'everything' })).toThrow('malformed input')
+    expect(() => request(IMAGE_PRUNE_PREVIEW_REQUEST, {})).toThrow('malformed input')
+    expect(pruneImages).not.toHaveBeenCalled()
   })
 
   it('reports a terminal that refused the text', async () => {

@@ -100,3 +100,20 @@ export type ContainerInput = { id: string }
 export type FilesInput = { id: string; path: string }
 export type ProcessesOutput = { titles: string[]; processes: string[][] }
 export type FilesOutput = { text: string }
+
+export const IMAGE_REMOVE_REQUEST = 'docker.image.remove'
+export const IMAGE_PRUNE_PREVIEW_REQUEST = 'docker.images.prunePreview'
+export const IMAGE_PRUNE_REQUEST = 'docker.images.prune'
+
+/** dangling: untagged images. unused: every image no container uses, tagged or not. */
+export const PRUNE_MODES = ['dangling', 'unused'] as const
+export type PruneMode = (typeof PRUNE_MODES)[number]
+
+export type ImageRemoveInput = {
+  id: string
+  /** The containers the person agreed to lose, so nothing else goes with them. */
+  containerIds: string[]
+}
+export type PruneInput = { mode: PruneMode }
+export type PrunePreview = { images: { name: string; size: number }[] }
+export type PruneResult = { removed: number; reclaimed: number }

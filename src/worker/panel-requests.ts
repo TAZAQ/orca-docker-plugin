@@ -2,11 +2,15 @@ import {
   CONTAINER_ACTION_REQUEST,
   CONTAINER_ACTIONS,
   FILES_REQUEST,
+  IMAGE_PRUNE_PREVIEW_REQUEST,
+  IMAGE_PRUNE_REQUEST,
+  IMAGE_REMOVE_REQUEST,
   INSPECT_REQUEST,
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
   PROCESSES_REQUEST,
+  PRUNE_MODES,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type ContainerAction,
@@ -15,11 +19,16 @@ import {
   type DockerTree,
   type FilesInput,
   type FilesOutput,
+  type ImageRemoveInput,
   type InspectInput,
   type LogsRenewOutput,
   type LogsStartOutput,
   type LogsStreamInput,
   type ProcessesOutput,
+  type PruneInput,
+  type PruneMode,
+  type PrunePreview,
+  type PruneResult,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -37,6 +46,9 @@ type PanelRequestsDeps = {
   inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
   processes(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }>
   files(id: string, path: string): Promise<string>
+  removeImage(id: string, containerIds: string[]): Promise<void>
+  previewPrune(mode: PruneMode): Promise<PrunePreview>
+  pruneImages(mode: PruneMode): Promise<PruneResult>
   logs: {
     start(id: string): string
     renew(streamId: string): boolean
@@ -65,6 +77,20 @@ function isInspectInput(input: unknown): input is InspectInput {
     ((value.kind === 'container' && CONTAINER_ID.test(value.id)) ||
       (value.kind === 'image' && IMAGE_ID.test(value.id)))
   )
+}
+
+function isImageRemoveInput(input: unknown): input is ImageRemoveInput {
+  const value = input as Partial<ImageRemoveInput> | null
+  return (
+    typeof value?.id === 'string' &&
+    IMAGE_ID.test(value.id) &&
+    Array.isArray(value.containerIds) &&
+    value.containerIds.every((id) => typeof id === 'string' && CONTAINER_ID.test(id))
+  )
+}
+
+function isPruneInput(input: unknown): input is PruneInput {
+  return PRUNE_MODES.includes((input as Partial<PruneInput> | null)?.mode as PruneMode)
 }
 
 function isFilesInput(input: unknown): input is FilesInput {
@@ -126,6 +152,28 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
       throw invalidParams(FILES_REQUEST)
     }
     return { text: await deps.files(input.id, input.path) }
+  })
+
+  orca.panels.handle(IMAGE_REMOVE_REQUEST, async (input) => {
+    if (!isImageRemoveInput(input)) {
+      throw invalidParams(IMAGE_REMOVE_REQUEST)
+    }
+    await deps.removeImage(input.id, input.containerIds)
+    return null
+  })
+
+  orca.panels.handle(IMAGE_PRUNE_PREVIEW_REQUEST, (input) => {
+    if (!isPruneInput(input)) {
+      throw invalidParams(IMAGE_PRUNE_PREVIEW_REQUEST)
+    }
+    return deps.previewPrune(input.mode)
+  })
+
+  orca.panels.handle(IMAGE_PRUNE_REQUEST, (input) => {
+    if (!isPruneInput(input)) {
+      throw invalidParams(IMAGE_PRUNE_REQUEST)
+    }
+    return deps.pruneImages(input.mode)
   })
 
   orca.panels.handle(LOGS_START_REQUEST, (input): LogsStartOutput => {

@@ -1,6 +1,7 @@
 import type { ProjectAction, ServiceAction } from '../shared/compose'
 import type {
   ContainerAction,
+  PruneMode,
   TreeContainer,
   TreeImage,
   TreeProject,
@@ -31,6 +32,8 @@ export type MenuTarget =
       compose?: { project: TreeProject; service: TreeService }
     }
   | { kind: 'docker' }
+  | { kind: 'images' }
+  | { kind: 'image'; image: TreeImage }
 
 export type MenuActions = {
   canSend(): boolean
@@ -50,6 +53,8 @@ export type MenuActions = {
   exec(container: TreeContainer): void
   shell(container: TreeContainer, shell: string): void
   pullImage(name: string): void
+  removeImage(image: TreeImage): void
+  pruneImages(mode: PruneMode): void
 }
 
 const NO_TERMINAL = 'Open a terminal in this worktree first'
@@ -105,17 +110,38 @@ function serviceMenu(project: TreeProject, service: TreeService, actions: MenuAc
   ]
 }
 
-function imageItems(container: TreeContainer, actions: MenuActions): MenuEntry[] {
-  const name = actions.images().find((image) => image.id === container.imageId)?.tags[0] ?? container.image
+function imageMenu(image: TreeImage, actions: MenuActions): MenuEntry[] {
+  const [tag] = image.tags
   return [
-    { label: 'Inspect', icon: 'search', run: () => actions.inspectImage(name, container.imageId) },
-    { label: 'Copy Image Name', icon: 'copy', run: () => actions.copy('Image name', name) },
-    {
-      label: 'Pull',
-      ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
-      run: () => actions.pullImage(name)
-    }
+    { label: 'Inspect', icon: 'search', run: () => actions.inspectImage(image.name, image.id) },
+    { label: 'Copy Image ID', icon: 'copy', run: () => actions.copy('Image ID', image.id) },
+    { label: 'Copy Image Name', icon: 'copy', run: () => actions.copy('Image name', image.name) },
+    tag
+      ? {
+          label: 'Pull',
+          icon: 'down',
+          ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
+          run: () => actions.pullImage(tag)
+        }
+      : { label: 'Pull', icon: 'down', disabledReason: 'The image has no tag' },
+    'separator',
+    { label: 'Remove Image', icon: 'remove', run: () => actions.removeImage(image) }
   ]
+}
+
+function imagesMenu(actions: MenuActions): MenuEntry[] {
+  return [
+    { label: 'Remove Dangling Images', icon: 'remove', run: () => actions.pruneImages('dangling') },
+    { label: 'Remove Unused Images', icon: 'remove', run: () => actions.pruneImages('unused') }
+  ]
+}
+
+function imageItems(container: TreeContainer, actions: MenuActions): MenuEntry[] {
+  const image = actions.images().find((item) => item.id === container.imageId)
+  if (image) {
+    return imageMenu(image, actions)
+  }
+  return [{ label: 'The image is no longer listed', disabledReason: 'Refresh the tree' }]
 }
 
 function lifecycleItems(container: TreeContainer, actions: MenuActions): MenuEntry[] {
@@ -212,5 +238,9 @@ export function buildMenu(target: MenuTarget, actions: MenuActions): MenuEntry[]
       return containerMenu(target.container, actions, target.compose)
     case 'docker':
       return dockerMenu(actions)
+    case 'images':
+      return imagesMenu(actions)
+    case 'image':
+      return imageMenu(target.image, actions)
   }
 }
