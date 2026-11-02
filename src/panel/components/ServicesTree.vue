@@ -22,7 +22,6 @@ import TreeIcon from './TreeIcon.vue'
 
 const props = defineProps<{ tree: DockerTree | null; busy: ReadonlySet<string> }>()
 const emit = defineEmits<{
-  pick: [project: TreeProject, service: TreeService | null]
   action: [container: TreeContainer, action: ContainerAction]
   shell: [container: TreeContainer]
   logs: [container: TreeContainer]
@@ -71,14 +70,10 @@ function serviceMeta(service: TreeService): string {
 function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
   const [only] = service.containers
   return service.containers.length === 1 && only
-    ? { kind: 'container', container: only }
+    ? { kind: 'container', container: only, compose: { project, service } }
     : { kind: 'service', project, service }
 }
 
-function pickProject(project: TreeProject): void {
-  emit('pick', project, null)
-  toggle(`project:${project.name}`)
-}
 </script>
 
 <template>
@@ -95,7 +90,12 @@ function pickProject(project: TreeProject): void {
     <p v-if="noMatches" class="note" data-test="tree-no-matches">Nothing found</p>
     <ul v-else-if="shown" class="tree scroll" data-test="tree">
       <li>
-        <button class="row" data-test="group-docker" @click="toggle(ROOT)">
+        <button
+          class="row"
+          data-test="group-docker"
+          @click="toggle(ROOT)"
+          @contextmenu.prevent="emit('menu', $event, { kind: 'docker' })"
+        >
           <span class="chevron" :class="{ open: isOpen(ROOT) }" />
           <TreeIcon name="docker" :active="!tree.error" />
           <span class="name">Docker</span>
@@ -106,7 +106,7 @@ function pickProject(project: TreeProject): void {
             <button
               class="row"
               :data-test="`project-row-${project.name}`"
-              @click="pickProject(project)"
+              @click="toggle(`project:${project.name}`)"
               @contextmenu.prevent="emit('menu', $event, { kind: 'project', project })"
             >
               <span class="chevron" :class="{ open: isOpen(`project:${project.name}`) }" />
@@ -121,17 +121,16 @@ function pickProject(project: TreeProject): void {
             <ul v-if="isOpen(`project:${project.name}`)" class="tree nested">
               <li v-for="service in project.services" :key="service.name">
                 <div class="line">
-                  <button
-                    class="row"
+                  <span
+                    class="row static"
                     :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
                     :data-test="`service-row-${project.name}-${service.name}`"
-                    @click="emit('pick', project, service)"
                     @contextmenu.prevent="emit('menu', $event, serviceTarget(project, service))"
                   >
                     <span class="dot" :class="containerDot(service.containers)" />
                     <span class="name">{{ service.name }}</span>
                     <span class="meta">{{ serviceMeta(service) }}</span>
-                  </button>
+                  </span>
                   <ContainerActions
                     v-if="service.containers.length === 1"
                     :container="service.containers[0]!"

@@ -88,10 +88,6 @@ export const PANEL_STATE_KEY = 'panelState'
 
 /** What the panel remembers between openings, in the plugin's own storage. */
 export type PanelState = {
-  projectName: string
-  files: string
-  profiles: string
-  recentServices: string[]
   runImmediately: boolean
 }
 

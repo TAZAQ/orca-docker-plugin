@@ -24,12 +24,19 @@ export type MenuEntry = MenuItem | 'separator'
 export type MenuTarget =
   | { kind: 'project'; project: TreeProject }
   | { kind: 'service'; project: TreeProject; service: TreeService }
-  | { kind: 'container'; container: TreeContainer }
+  | {
+      kind: 'container'
+      container: TreeContainer
+      /** Where it came from in the tree, when that was a Compose service. */
+      compose?: { project: TreeProject; service: TreeService }
+    }
+  | { kind: 'docker' }
 
 export type MenuActions = {
   canSend(): boolean
   images(): TreeImage[]
   compose(project: TreeProject, action: ProjectAction): void
+  composeInTerminalFolder(): void
   service(project: TreeProject, service: TreeService, action: ServiceAction): void
   containerAction(container: TreeContainer, action: ContainerAction): void
   removeContainer(container: TreeContainer): void
@@ -65,6 +72,11 @@ function projectMenu(project: TreeProject, actions: MenuActions): MenuEntry[] {
     compose('Stop', 'stop', 'stop'),
     compose('Down', 'down', 'down'),
     'separator',
+    compose('Pull', 'down', 'pull'),
+    compose('Build', 'build', 'build'),
+    compose('Status in Terminal', 'terminal', 'ps'),
+    compose('Logs in Terminal', 'logs', 'logs'),
+    'separator',
     { label: 'Jump to Source', icon: 'source', disabledReason: NEEDS_NEWER_ORCA },
     composeFile
       ? {
@@ -88,7 +100,8 @@ function serviceMenu(project: TreeProject, service: TreeService, actions: MenuAc
     run('Start', 'play', 'up'),
     run('Restart', 'restart', 'restart'),
     run('Stop', 'stop', 'stop'),
-    run('Logs in Terminal', 'logs', 'logs')
+    run('Logs in Terminal', 'logs', 'logs'),
+    run('Rebuild', 'build', 'rebuild')
   ]
 }
 
@@ -124,7 +137,23 @@ function lifecycleItems(container: TreeContainer, actions: MenuActions): MenuEnt
   ]
 }
 
-function containerMenu(container: TreeContainer, actions: MenuActions): MenuEntry[] {
+function dockerMenu(actions: MenuActions): MenuEntry[] {
+  return [
+    {
+      label: 'Compose Up in Terminal Folder',
+      icon: 'deploy',
+      // A project with no containers yet is not in the tree, so this is how it gets started.
+      ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
+      run: () => actions.composeInTerminalFolder()
+    }
+  ]
+}
+
+function containerMenu(
+  container: TreeContainer,
+  actions: MenuActions,
+  compose?: { project: TreeProject; service: TreeService }
+): MenuEntry[] {
   const running = isRunning(container)
   /** Runs in a terminal, inside the container, so it needs both. */
   const inside = (): Pick<MenuItem, 'disabledReason'> => {
@@ -154,6 +183,16 @@ function containerMenu(container: TreeContainer, actions: MenuActions): MenuEntr
         run: () => actions.shell(container, shell)
       }))
     },
+    ...(compose
+      ? [
+          {
+            label: 'Rebuild Service',
+            icon: 'build',
+            ...(actions.canSend() ? {} : { disabledReason: NO_TERMINAL }),
+            run: () => actions.service(compose.project, compose.service, 'rebuild')
+          } satisfies MenuItem
+        ]
+      : []),
     ...(isUp(container)
       ? []
       : ([
@@ -170,6 +209,8 @@ export function buildMenu(target: MenuTarget, actions: MenuActions): MenuEntry[]
     case 'service':
       return serviceMenu(target.project, target.service, actions)
     case 'container':
-      return containerMenu(target.container, actions)
+      return containerMenu(target.container, actions, target.compose)
+    case 'docker':
+      return dockerMenu(actions)
   }
 }

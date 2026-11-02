@@ -5,8 +5,6 @@ export type ComposeTarget = {
   projectName: string
   /** `-f`, in order; empty means compose looks for compose.yaml in the cwd. */
   files: string[]
-  /** `--profile`. */
-  profiles: string[]
 }
 
 export type ProjectAction = 'up' | 'start' | 'restart' | 'stop' | 'down' | 'ps' | 'logs' | 'pull' | 'build'
@@ -45,14 +43,6 @@ export function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", `'\\''`)}'`
 }
 
-/** Splits a free-form field ("a.yml, b.yml" or one per line) into non-empty items. */
-export function splitList(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter((item) => item !== '')
-}
-
 function targetArgs(target: ComposeTarget): string[] {
   const args: string[] = []
   const projectName = target.projectName.trim()
@@ -61,9 +51,6 @@ function targetArgs(target: ComposeTarget): string[] {
   }
   for (const file of target.files) {
     args.push('-f', file)
-  }
-  for (const profile of target.profiles) {
-    args.push('--profile', profile)
   }
   return args
 }

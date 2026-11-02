@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   emptyTree,
   type ContainerAction,
   type DockerTree,
   type PanelState,
   type TreeContainer,
-  type TreeProject,
-  type TreeService
+  type TreeProject
 } from '../shared/protocol'
 import {
   containerAttachCommand,
@@ -16,13 +15,10 @@ import {
   imagePullCommand,
   projectCommand,
   serviceCommand,
-  splitList,
-  type ComposeTarget,
-  type ProjectAction,
-  type ServiceAction
+  type ComposeTarget
 } from '../shared/compose'
 import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
-import ActionIcon, { type IconName } from './components/ActionIcon.vue'
+import ActionIcon from './components/ActionIcon.vue'
 import { copyText } from './clipboard'
 import ContextMenu from './components/ContextMenu.vue'
 import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
@@ -42,16 +38,9 @@ const loading = ref(true)
 const terminalId = ref('')
 const runImmediately = ref(true)
 
-const projectName = ref('')
-const files = ref('')
-const profiles = ref('')
-const service = ref('')
-const recentServices = ref<string[]>([])
 
 const lastCommand = ref('')
 const status = ref<{ kind: 'info' | 'error'; text: string } | null>(null)
-const confirmingDown = ref(false)
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
 
 const tree = ref<DockerTree | null>(null)
 const busyContainers = ref<ReadonlySet<string>>(new Set())
@@ -66,14 +55,8 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 /** Nothing is saved until the stored state is read, or the defaults would overwrite it. */
 let stateLoaded = false
 
-const target = computed<ComposeTarget>(() => ({
-  projectName: projectName.value,
-  files: splitList(files.value),
-  profiles: splitList(profiles.value)
-}))
 const terminals = computed(() => context.value?.terminals ?? [])
 const canSend = computed(() => terminalId.value !== '')
-const hasService = computed(() => service.value.trim() !== '')
 
 function applyContext(value: WorkspaceContext): void {
   context.value = value
@@ -96,25 +79,17 @@ async function refresh(): Promise<void> {
 async function restoreState(): Promise<void> {
   try {
     const stored = await props.host.loadState()
-    projectName.value = stored?.projectName ?? projectName.value
-    files.value = stored?.files ?? files.value
-    profiles.value = stored?.profiles ?? profiles.value
-    recentServices.value = stored?.recentServices ?? recentServices.value
     runImmediately.value = stored?.runImmediately ?? runImmediately.value
   } catch (error) {
     showError(error)
   }
+  // After the watcher has seen the restored values, or it would save them straight back.
+  await nextTick()
   stateLoaded = true
 }
 
 function currentState(): PanelState {
-  return {
-    projectName: projectName.value,
-    files: files.value,
-    profiles: profiles.value,
-    recentServices: recentServices.value,
-    runImmediately: runImmediately.value
-  }
+  return { runImmediately: runImmediately.value }
 }
 
 function scheduleSave(): void {
@@ -132,15 +107,6 @@ async function refreshTree(): Promise<void> {
     tree.value = await props.host.loadTree()
   } catch (error) {
     tree.value = emptyTree(error instanceof Error ? error.message : String(error))
-  }
-}
-
-/** Points the Project and Service sections at what was clicked in the tree. */
-function pickService(project: TreeProject, picked: TreeService | null): void {
-  projectName.value = project.name
-  files.value = project.configFiles.join(', ')
-  if (picked) {
-    service.value = picked.name
   }
 }
 
@@ -179,7 +145,7 @@ function openShell(container: TreeContainer): void {
 }
 
 function pointAt(project: TreeProject): ComposeTarget {
-  return { projectName: project.name, files: project.configFiles, profiles: [] }
+  return { projectName: project.name, files: project.configFiles }
 }
 
 async function showDetails(
@@ -238,6 +204,7 @@ const menuActions: MenuActions = {
     }
     sendToTerminal(projectCommand(pointAt(project), action))
   },
+  composeInTerminalFolder: () => sendToTerminal(projectCommand({ projectName: '', files: [] }, 'up')),
   service: (project, service, action) =>
     sendToTerminal(serviceCommand(pointAt(project), action, service.name)),
   containerAction: (container, action) => void runContainerAction(container, action),
@@ -308,50 +275,8 @@ async function send(command: string): Promise<void> {
   }
 }
 
-function runProject(action: ProjectAction): void {
-  if (action === 'down' && !confirmingDown.value) {
-    // Sandboxed panels cannot open confirm() dialogs, so Down asks for a second click.
-    confirmingDown.value = true
-    clearTimeout(confirmTimer)
-    confirmTimer = setTimeout(() => (confirmingDown.value = false), 4000)
-    return
-  }
-  confirmingDown.value = false
-  void send(projectCommand(target.value, action))
-}
-
-function runService(action: ServiceAction): void {
-  const name = service.value.trim()
-  if (name === '') {
-    return
-  }
-  recentServices.value = [name, ...recentServices.value.filter((item) => item !== name)].slice(0, 12)
-  void send(serviceCommand(target.value, action, name))
-}
-
-const projectActions: { action: ProjectAction; label: string; icon: IconName }[] = [
-  { action: 'up', label: 'Start All', icon: 'play' },
-  { action: 'restart', label: 'Restart', icon: 'restart' },
-  { action: 'stop', label: 'Stop', icon: 'stop' },
-  { action: 'down', label: 'Down', icon: 'down' }
-]
-const projectExtras: { action: ProjectAction; label: string }[] = [
-  { action: 'ps', label: 'ps' },
-  { action: 'logs', label: 'Logs' },
-  { action: 'pull', label: 'Pull' },
-  { action: 'build', label: 'Build' }
-]
-const serviceActions: { action: ServiceAction; label: string; icon: IconName }[] = [
-  { action: 'up', label: 'Start', icon: 'play' },
-  { action: 'restart', label: 'Restart', icon: 'restart' },
-  { action: 'stop', label: 'Stop', icon: 'stop' },
-  { action: 'logs', label: 'Logs', icon: 'logs' },
-  { action: 'shell', label: 'Shell', icon: 'terminal' },
-  { action: 'rebuild', label: 'Rebuild', icon: 'build' }
-]
-
 watch(terminalId, () => (status.value = null))
-watch([projectName, files, profiles, recentServices, runImmediately], scheduleSave)
+watch(runImmediately, scheduleSave)
 
 function onVisible(): void {
   if (document.visibilityState === 'visible') {
@@ -378,7 +303,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  clearTimeout(confirmTimer)
   clearTimeout(saveTimer)
   clearInterval(treePoll)
   treeSubscription?.dispose()
@@ -408,7 +332,6 @@ onBeforeUnmount(() => {
       <ServicesTree
         :tree="tree"
         :busy="busyContainers"
-        @pick="pickService"
         @action="runContainerAction"
         @shell="openShell"
         @logs="(container) => (logsContainer = container)"
@@ -440,84 +363,6 @@ onBeforeUnmount(() => {
         <input v-model="runImmediately" type="checkbox" data-test="run-immediately" />
         Run immediately (otherwise only type the command)
       </label>
-    </section>
-
-    <details class="section">
-      <summary class="label">Compose options</summary>
-      <label class="field">
-        <span class="label">Project name (-p)</span>
-        <input v-model="projectName" placeholder="from directory" data-test="project-name" />
-      </label>
-      <label class="field">
-        <span class="label">Compose files (-f), comma separated</span>
-        <input v-model="files" placeholder="compose.yaml" data-test="files" />
-      </label>
-      <label class="field">
-        <span class="label">Profiles, comma separated</span>
-        <input v-model="profiles" data-test="profiles" />
-      </label>
-    </details>
-
-    <section class="section">
-      <h2 class="title">Project</h2>
-      <div class="toolbar">
-        <button
-          v-for="item in projectActions"
-          :key="item.action"
-          :class="{ danger: item.action === 'down' && confirmingDown }"
-          :disabled="!canSend"
-          :data-test="`project-${item.action}`"
-          @click="runProject(item.action)"
-        >
-          <ActionIcon :name="item.icon" />
-          {{ item.action === 'down' && confirmingDown ? 'Confirm Down' : item.label }}
-        </button>
-      </div>
-      <div class="toolbar secondary">
-        <button
-          v-for="item in projectExtras"
-          :key="item.action"
-          :disabled="!canSend"
-          :data-test="`project-${item.action}`"
-          @click="runProject(item.action)"
-        >
-          {{ item.label }}
-        </button>
-      </div>
-    </section>
-
-    <section class="section">
-      <h2 class="title">Service</h2>
-      <input
-        v-model="service"
-        class="service-input"
-        placeholder="service name, e.g. postgres"
-        data-test="service"
-        @keydown.enter="runService('logs')"
-      />
-      <div v-if="recentServices.length > 0" class="chips">
-        <button
-          v-for="name in recentServices"
-          :key="name"
-          class="chip"
-          :class="{ active: name === service.trim() }"
-          @click="service = name"
-        >
-          {{ name }}
-        </button>
-      </div>
-      <div class="toolbar">
-        <button
-          v-for="item in serviceActions"
-          :key="item.action"
-          :disabled="!canSend || !hasService"
-          :data-test="`service-${item.action}`"
-          @click="runService(item.action)"
-        >
-          <ActionIcon :name="item.icon" />
-          {{ item.label }}
-        </button>
-      </div>
     </section>
 
     <footer class="footer">
@@ -603,10 +448,6 @@ select {
   flex-direction: column;
   gap: 8px;
 }
-details.section > summary {
-  cursor: pointer;
-  margin-bottom: 4px;
-}
 .title {
   margin: 0;
   font-size: 12px;
@@ -631,58 +472,18 @@ details.section > summary {
   font-size: 12px;
   color: var(--orca-muted-foreground);
 }
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.toolbar button,
-.icon-button,
-.chip {
+.icon-button {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
+  padding: 4px 6px;
   border: 1px solid var(--orca-border);
   border-radius: calc(var(--orca-radius) - 2px);
   background: var(--orca-secondary);
   color: var(--orca-secondary-foreground);
   cursor: pointer;
 }
-.toolbar.secondary button {
-  background: transparent;
-  font-size: 12px;
-}
-.icon-button {
-  padding: 4px 6px;
-}
 button:hover:not(:disabled) {
   background: var(--orca-accent);
   color: var(--orca-accent-foreground);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-button.danger,
-button.danger:hover {
-  background: var(--orca-destructive);
-  color: var(--orca-destructive-foreground);
-  border-color: var(--orca-destructive);
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.chip {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: transparent;
-  font-size: 12px;
-}
-.chip.active {
-  border-color: var(--orca-ring);
 }
 .footer {
   display: flex;

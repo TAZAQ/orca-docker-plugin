@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { containerShellCommand, projectCommand, serviceCommand, shellQuote, splitList, type ComposeTarget } from '../src/shared/compose'
+import { containerShellCommand, projectCommand, serviceCommand, shellQuote, type ComposeTarget } from '../src/shared/compose'
 
-const plain: ComposeTarget = { projectName: '', files: [], profiles: [] }
+const plain: ComposeTarget = { projectName: '', files: [] }
 
 describe('shellQuote', () => {
   it('leaves safe words alone', () => {
@@ -20,12 +20,6 @@ describe('shellQuote', () => {
   })
 })
 
-describe('splitList', () => {
-  it('splits on commas and newlines and drops blanks', () => {
-    expect(splitList(' a.yml, b.yml ,\n\nc.yml,')).toEqual(['a.yml', 'b.yml', 'c.yml'])
-  })
-})
-
 describe('projectCommand', () => {
   it('maps the IDEA toolbar to compose subcommands', () => {
     expect(projectCommand(plain, 'up')).toBe('docker compose up -d')
@@ -35,14 +29,13 @@ describe('projectCommand', () => {
     expect(projectCommand(plain, 'logs')).toBe('docker compose logs -f --tail 200')
   })
 
-  it('puts project, files and profiles before the subcommand', () => {
+  it('puts project and files before the subcommand', () => {
     const target = {
       projectName: ' brave-medods ',
-      files: ['compose.yml', 'dev overrides.yml'],
-      profiles: ['kafka']
+      files: ['compose.yml', 'dev overrides.yml']
     }
     expect(projectCommand(target, 'up')).toBe(
-      "docker compose -p brave-medods -f compose.yml -f 'dev overrides.yml' --profile kafka up -d"
+      "docker compose -p brave-medods -f compose.yml -f 'dev overrides.yml' up -d"
     )
   })
 })

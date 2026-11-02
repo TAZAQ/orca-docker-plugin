@@ -65,59 +65,20 @@ function fakeHost(context: WorkspaceContext) {
 
 const workspace = { displayName: 'medods', branch: 'develop', terminals: [{ id: 't-1' }, { id: 't-2' }] }
 
+function menuItem(wrapper: VueWrapper, label: string) {
+  const item = wrapper
+    .findAll('[data-test="context-menu"] button')
+    .find((button) => button.text() === label)
+  if (!item) {
+    throw new Error(`no menu item ${label}`)
+  }
+  return item
+}
+
 describe('panel', () => {
-  it('types Start All into the first terminal', async () => {
-    const { host, sent } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    expect(wrapper.text()).toContain('medods')
-    await wrapper.get('[data-test="project-up"]').trigger('click')
-    await flushPromises()
-    expect(sent).toEqual([{ terminalId: 't-1', text: 'docker compose up -d', enter: true }])
-    expect(wrapper.get('[data-test="last-command"]').text()).toBe('docker compose up -d')
-  })
 
-  it('needs a second click before Down', async () => {
-    const { host, sent } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    const down = wrapper.get('[data-test="project-down"]')
-    await down.trigger('click')
-    expect(sent).toEqual([])
-    expect(down.text()).toBe('Confirm Down')
-    await down.trigger('click')
-    await flushPromises()
-    expect(sent.map((item) => item.text)).toEqual(['docker compose down'])
-  })
 
-  it('applies compose options and service actions to the chosen terminal', async () => {
-    const { host, sent } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    await wrapper.get('[data-test="terminal"]').setValue('t-2')
-    await wrapper.get('[data-test="project-name"]').setValue('brave')
-    await wrapper.get('[data-test="files"]').setValue('compose.yml, dev.yml')
-    await wrapper.get('[data-test="run-immediately"]').setValue(false)
-    expect(wrapper.get('[data-test="service-logs"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-test="service"]').setValue('postgres')
-    await wrapper.get('[data-test="service-logs"]').trigger('click')
-    await flushPromises()
-    expect(sent).toEqual([
-      {
-        terminalId: 't-2',
-        text: 'docker compose -p brave -f compose.yml -f dev.yml logs -f --tail 200 postgres',
-        enter: false
-      }
-    ])
-  })
 
-  it('disables actions without a terminal', async () => {
-    const { host } = fakeHost({ ...workspace, terminals: [] })
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    expect(wrapper.get('[data-test="project-up"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('Open a terminal in this worktree')
-  })
 
   async function mountWithProject(context: WorkspaceContext = workspace) {
     const { host, sent } = fakeHost(context)
@@ -208,13 +169,6 @@ describe('panel', () => {
     expect(wrapper.find('[data-test="group-images"]').exists()).toBe(true)
   })
 
-  it('points the service section at the clicked service', async () => {
-    const { sent, wrapper } = await mountWithProject()
-    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
-    await wrapper.get('[data-test="service-restart"]').trigger('click')
-    await flushPromises()
-    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml restart web')
-  })
 
   it('runs container actions through the worker, not a terminal', async () => {
     const { host, sent, wrapper } = await mountWithProject({ ...workspace, terminals: [] })
@@ -290,14 +244,15 @@ describe('panel', () => {
   })
 
   it('follows the terminals of the workspace without a refresh', async () => {
-    const { host, sent } = fakeHost({ ...workspace, terminals: [] })
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    expect(wrapper.get('[data-test="project-up"]').attributes('disabled')).toBeDefined()
+    const { sent, wrapper } = await mountWithProject({ ...workspace, terminals: [] })
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Deploy').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="context-menu"]').trigger('keydown', { key: 'Escape' })
     contextListeners.at(-1)!({ ...workspace, terminals: [{ id: 't-9', title: 'server' }] })
     await flushPromises()
     expect(wrapper.get('[data-test="terminal"]').text()).toBe('server')
-    await wrapper.get('[data-test="project-up"]').trigger('click')
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Deploy').trigger('click')
     await flushPromises()
     expect(sent[0]!.terminalId).toBe('t-9')
   })
@@ -319,44 +274,7 @@ describe('panel', () => {
     expect(wrapper.find('.branch').exists()).toBe(false)
   })
 
-  it('restores compose options and recent services', async () => {
-    const { host, sent } = fakeHost(workspace)
-    host.loadState = vi.fn(async () => ({
-      projectName: 'brave',
-      recentServices: ['postgres'],
-      runImmediately: false
-    }))
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    expect(wrapper.text()).toContain('postgres')
-    await wrapper.get('[data-test="project-ps"]').trigger('click')
-    await flushPromises()
-    expect(sent[0]).toEqual({ terminalId: 't-1', text: 'docker compose -p brave ps -a', enter: false })
-  })
 
-  it('saves what changed, but never the defaults over what is stored', async () => {
-    vi.useFakeTimers()
-    const { host } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(host.saveState).not.toHaveBeenCalled()
-    await wrapper.get('[data-test="project-name"]').setValue('brave')
-    await vi.advanceTimersByTimeAsync(1000)
-    vi.useRealTimers()
-    expect(host.saveState).toHaveBeenCalledTimes(1)
-    expect(host.saveState).toHaveBeenCalledWith(expect.objectContaining({ projectName: 'brave' }))
-  })
-
-  function menuItem(wrapper: VueWrapper, label: string) {
-    const item = wrapper
-      .findAll('[data-test="context-menu"] button')
-      .find((button) => button.text() === label)
-    if (!item) {
-      throw new Error(`no menu item ${label}`)
-    }
-    return item
-  }
 
   it('offers the JetBrains group menu on a compose project', async () => {
     const { sent, wrapper } = await mountWithProject()
@@ -368,6 +286,10 @@ describe('panel', () => {
       'Restart',
       'Stop',
       'Down',
+      'Pull',
+      'Build',
+      'Status in Terminal',
+      'Logs in Terminal',
       'Jump to Source',
       'Copy Compose File Path'
     ])
@@ -376,6 +298,71 @@ describe('panel', () => {
     await flushPromises()
     expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d')
     expect(wrapper.find('[data-test="context-menu"]').exists()).toBe(false)
+  })
+
+  it('keeps the bottom of the panel to the terminal choice', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Compose options')
+    expect(wrapper.find('[data-test="service"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="terminal"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="run-immediately"]').exists()).toBe(true)
+  })
+
+  it('types into the chosen terminal, without Enter when asked to', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="terminal"]').setValue('t-2')
+    await wrapper.get('[data-test="run-immediately"]').setValue(false)
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Pull').trigger('click')
+    await flushPromises()
+    expect(sent).toEqual([
+      { terminalId: 't-2', text: 'docker compose -p shop -f /srv/shop/compose.yaml pull', enter: false }
+    ])
+  })
+
+  it('rebuilds the service a container came from', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Rebuild Service').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d --build web')
+  })
+
+  it('starts a project that has no containers yet from the terminal folder', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Compose Up in Terminal Folder').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker compose up -d')
+  })
+
+  it('shows a terminal that refused a command', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.sendText = vi.fn(async () => {
+      throw new Error('terminal not found')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Stop').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('terminal not found')
+  })
+
+  it('remembers Run immediately, but never saves the default over what is stored', async () => {
+    vi.useFakeTimers()
+    const { host } = fakeHost(workspace)
+    host.loadState = vi.fn(async () => ({ runImmediately: false }))
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((wrapper.get('[data-test="run-immediately"]').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('[data-test="run-immediately"]').setValue(true)
+    await vi.advanceTimersByTimeAsync(1000)
+    vi.useRealTimers()
+    expect(host.saveState).toHaveBeenCalledTimes(1)
+    expect(host.saveState).toHaveBeenCalledWith({ runImmediately: true })
   })
 
   it('asks before Down from the menu', async () => {
@@ -405,7 +392,8 @@ describe('panel', () => {
       'Show Processes',
       'Attach',
       'Exec',
-      'Create Terminal'
+      'Create Terminal',
+      'Rebuild Service'
     ])
     await menuItem(wrapper, 'Pause Container').trigger('click')
     expect(host.containerAction).toHaveBeenCalledWith('abc', 'pause')
@@ -513,17 +501,6 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="tree-error"]').text()).toBe('worker is down')
   })
 
-  it('shows a host error', async () => {
-    const { host } = fakeHost(workspace)
-    host.sendText = vi.fn(async () => {
-      throw new Error('terminal not found')
-    })
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
-    await wrapper.get('[data-test="project-stop"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-test="status"]').text()).toBe('terminal not found')
-  })
 })
 
 describe('createHostBridge', () => {
@@ -567,8 +544,8 @@ describe('createHostBridge', () => {
 
   it('keeps the panel state in the plugin storage', async () => {
     const orca = fakeOrca()
-    orca.host.call.mockResolvedValue({ value: { projectName: 'brave' } })
-    await expect(createHostBridge(orca).loadState()).resolves.toEqual({ projectName: 'brave' })
+    orca.host.call.mockResolvedValue({ value: { runImmediately: false } })
+    await expect(createHostBridge(orca).loadState()).resolves.toEqual({ runImmediately: false })
     expect(orca.host.call).toHaveBeenCalledWith('storage.get', { key: 'panelState' })
   })
 
