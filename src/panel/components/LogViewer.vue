@@ -97,7 +97,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="section log-viewer">
     <div class="log-header">
-      <h2 class="title log-title">{{ container.name }}</h2>
+      <h2 class="log-title">{{ container.name }}</h2>
       <label class="follow"><input v-model="follow" type="checkbox" data-test="logs-follow" /> Follow</label>
       <button class="link" data-test="logs-clear" @click="lines = []">Clear</button>
       <button class="link" data-test="logs-close" @click="emit('close')">Close</button>
@@ -120,8 +120,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-transform: none;
-  letter-spacing: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orca-muted-foreground);
 }
 .follow {
   display: flex;
