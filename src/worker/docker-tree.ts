@@ -1,17 +1,29 @@
-import type {
-  ContainerHealth,
-  DockerTree,
-  TreeContainer,
-  TreeProject,
-  TreeService
+import {
+  emptyTree,
+  type ContainerHealth,
+  type DockerTree,
+  type TreeContainer,
+  type TreeImage,
+  type TreeProject,
+  type TreeService
 } from '../shared/protocol'
 import { PROJECT_LABEL, SERVICE_LABEL } from './compose-status'
 import { WATCHED_EVENTS } from './crash-notifier'
-import type { DockerContainer } from './docker-api'
+import type { DockerContainer, DockerImage, DockerNetwork, DockerVolume } from './docker-api'
 
-/** Groups containers the way the Services view of JetBrains IDEs does: project, service, container. */
+/** Lays Docker out the way the Services view of JetBrains IDEs does. */
 
 const CONFIG_FILES_LABEL = 'com.docker.compose.project.config_files'
+/** Set by the Dev Containers CLI and by editors on the containers they start. */
+const DEV_CONTAINER_LABEL = 'devcontainer.local_folder'
+
+export type DockerResources = {
+  images: DockerImage[]
+  networks: DockerNetwork[]
+  volumes: DockerVolume[]
+}
+
+const NO_RESOURCES: DockerResources = { images: [], networks: [], volumes: [] }
 
 /** Everything that changes what the tree shows, on top of what the crash notifier needs. */
 export const TREE_EVENTS = [
@@ -23,8 +35,15 @@ export const TREE_EVENTS = [
   'pause',
   'unpause',
   'destroy',
-  'rename'
+  'rename',
+  'pull',
+  'delete',
+  'tag',
+  'untag'
 ]
+
+/** Images, networks and volumes change the tree too; only containers matter to the crash notifier. */
+export const TREE_EVENT_TYPES = ['container', 'image', 'network', 'volume']
 
 /** Compose changes many containers at once, so a burst of events becomes one read. */
 export const TREE_DEBOUNCE_MS = 300
@@ -61,13 +80,24 @@ function toTreeContainer(container: DockerContainer): TreeContainer {
 
 const byName = <T extends { name: string }>(a: T, b: T): number => a.name.localeCompare(b.name)
 
-export function buildTree(containers: DockerContainer[]): DockerTree {
+function toTreeImage(image: DockerImage): TreeImage {
+  const tags = (image.RepoTags ?? []).filter((tag) => tag !== '<none>:<none>')
+  return {
+    id: image.Id,
+    name: tags[0] ?? image.Id.replace(/^sha256:/, '').slice(0, 12),
+    tags,
+    size: image.Size
+  }
+}
+
+export function buildTree(
+  containers: DockerContainer[],
+  resources: DockerResources = NO_RESOURCES
+): DockerTree {
   const projects = new Map<string, TreeProject>()
-  const standalone: TreeContainer[] = []
   for (const container of containers) {
     const name = container.Labels[PROJECT_LABEL]
     if (name === undefined) {
-      standalone.push(toTreeContainer(container))
       continue
     }
     const project = projects.get(name) ?? { name, configFiles: [], services: [] }
@@ -90,12 +120,30 @@ export function buildTree(containers: DockerContainer[]): DockerTree {
       service.containers.sort(byName)
     }
   }
-  return { projects: sorted, containers: standalone.sort(byName) }
+  return {
+    projects: sorted,
+    devContainers: containers
+      .filter((container) => container.Labels[DEV_CONTAINER_LABEL] !== undefined)
+      .map(toTreeContainer)
+      .sort(byName),
+    containers: containers.map(toTreeContainer).sort(byName),
+    images: resources.images.map(toTreeImage).sort(byName),
+    networks: resources.networks
+      .map((network) => ({ id: network.Id, name: network.Name, driver: network.Driver }))
+      .sort(byName),
+    volumes: resources.volumes
+      .map((volume) => ({ name: volume.Name, driver: volume.Driver }))
+      .sort(byName)
+  }
 }
+
+/** Below Orca's 256 KiB limit for a post. A request may answer with up to 1 MiB. */
+export const TREE_POST_MAX_BYTES = 200 * 1024
 
 export type TreePublisherOptions = {
   load: () => Promise<DockerTree>
-  post: (tree: DockerTree) => void
+  /** `null` says the tree changed but is too big to post, so the panel has to ask for it. */
+  post: (tree: DockerTree | null) => void
   debounceMs?: number
 }
 
@@ -113,7 +161,7 @@ export class TreePublisher {
       return tree
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      return { projects: [], containers: [], error: message }
+      return emptyTree(message)
     }
   }
 
@@ -132,7 +180,7 @@ export class TreePublisher {
     const text = JSON.stringify(tree)
     if (text !== previous) {
       this.lastPosted = text
-      this.options.post(tree)
+      this.options.post(Buffer.byteLength(text) <= TREE_POST_MAX_BYTES ? tree : null)
     }
   }
 }

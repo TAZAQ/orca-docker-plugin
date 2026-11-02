@@ -21,6 +21,10 @@ export type DockerContainer = {
   Labels: Record<string, string>
 }
 
+export type DockerImage = { Id: string; RepoTags: string[] | null; Size: number }
+export type DockerNetwork = { Id: string; Name: string; Driver: string }
+export type DockerVolume = { Name: string; Driver: string }
+
 export class DockerApiError extends Error {
   constructor(
     message: string,
@@ -82,6 +86,19 @@ export class DockerApi {
 
   listContainers(): Promise<DockerContainer[]> {
     return this.getJson<DockerContainer[]>('/containers/json?all=1')
+  }
+
+  listImages(): Promise<DockerImage[]> {
+    return this.getJson<DockerImage[]>('/images/json')
+  }
+
+  listNetworks(): Promise<DockerNetwork[]> {
+    return this.getJson<DockerNetwork[]>('/networks')
+  }
+
+  async listVolumes(): Promise<DockerVolume[]> {
+    const { Volumes } = await this.getJson<{ Volumes: DockerVolume[] | null }>('/volumes')
+    return Volumes ?? []
   }
 
   async containerAction(id: string, action: ContainerAction): Promise<void> {

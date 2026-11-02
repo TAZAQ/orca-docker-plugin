@@ -71,6 +71,19 @@ describe('DockerApi', () => {
     )
   })
 
+  it('reads images, networks and volumes, and a daemon with no volumes', async () => {
+    const api = await fakeDaemon((url, res) => {
+      res.end(
+        JSON.stringify(
+          url === '/volumes' ? { Volumes: null } : [{ Id: 'x', Name: 'x', Driver: 'bridge', Size: 1 }]
+        )
+      )
+    })
+    await expect(api.listImages()).resolves.toHaveLength(1)
+    await expect(api.listNetworks()).resolves.toHaveLength(1)
+    await expect(api.listVolumes()).resolves.toEqual([])
+  })
+
   it('surfaces the daemon error message', async () => {
     const api = await fakeDaemon((_url, res) => {
       res.statusCode = 500

@@ -31,12 +31,33 @@ export type TreeProject = {
   services: TreeService[]
 }
 
+export type TreeImage = { id: string; name: string; tags: string[]; size: number }
+export type TreeNetwork = { id: string; name: string; driver: string }
+export type TreeVolume = { name: string; driver: string }
+
+/** The same groups, in the same order, as the Docker node of the JetBrains Services view. */
 export type DockerTree = {
   projects: TreeProject[]
-  /** Containers started without Compose. */
+  devContainers: TreeContainer[]
+  /** Every container, including the ones listed under a project. */
   containers: TreeContainer[]
+  images: TreeImage[]
+  networks: TreeNetwork[]
+  volumes: TreeVolume[]
   /** Set when the daemon could not be read. */
   error?: string
+}
+
+export function emptyTree(error?: string): DockerTree {
+  return {
+    projects: [],
+    devContainers: [],
+    containers: [],
+    images: [],
+    networks: [],
+    volumes: [],
+    ...(error === undefined ? {} : { error })
+  }
 }
 
 export const CONTAINER_ACTION_REQUEST = 'docker.container'

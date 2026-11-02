@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { SEND_TEXT_REQUEST, type DockerTree } from '../src/shared/protocol'
+import { emptyTree, SEND_TEXT_REQUEST, type DockerTree } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -15,12 +15,16 @@ const container = {
   ports: ['8080→80']
 }
 const tree: DockerTree = {
+  ...emptyTree(),
   projects: [
     { name: 'shop', configFiles: ['/srv/shop/compose.yaml'], services: [{ name: 'web', containers: [container] }] }
   ],
-  containers: []
+  containers: [container],
+  images: [{ id: 'sha256:1', name: 'nginx:1', tags: ['nginx:1'], size: 52_000_000 }],
+  networks: [{ id: 'n1', name: 'bridge', driver: 'bridge' }],
+  volumes: [{ name: 'pgdata', driver: 'local' }]
 }
-const treeListeners: ((value: DockerTree) => void)[] = []
+const treeListeners: ((value: DockerTree | null) => void)[] = []
 
 function fakeHost(context: WorkspaceContext) {
   const sent: { terminalId: string; text: string; enter: boolean }[] = []
@@ -32,7 +36,7 @@ function fakeHost(context: WorkspaceContext) {
     }),
     loadTree: vi.fn(async () => tree),
     containerAction: vi.fn(async () => undefined),
-    onTreeChanged: vi.fn((listener: (value: DockerTree) => void) => {
+    onTreeChanged: vi.fn((listener: (value: DockerTree | null) => void) => {
       treeListeners.push(listener)
       return { dispose: () => undefined }
     })
@@ -96,22 +100,73 @@ describe('panel', () => {
     expect(wrapper.text()).toContain('Open a terminal in this worktree')
   })
 
-  it('shows the tree and follows what the worker pushes', async () => {
+  async function mountWithProject(context: WorkspaceContext = workspace) {
+    const { host, sent } = fakeHost(context)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('click')
+    return { host, sent, wrapper }
+  }
+
+  it('lays the tree out like the JetBrains Docker node, with every group collapsed', async () => {
     const { host } = fakeHost(workspace)
     const wrapper = mount(App, { props: { host } })
     await flushPromises()
-    expect(wrapper.get('[data-test="tree"]').text()).toContain('shop')
-    expect(wrapper.get('[data-test="service-row-shop-web"]').text()).toContain('8080→80')
-    treeListeners.at(-1)!({ projects: [], containers: [{ ...container, name: 'solo' }] })
+    const labels = wrapper.findAll('[data-test="tree"] > li > ul > li > button .name').map((row) => row.text())
+    expect(labels).toEqual([
+      'Docker-compose: shop',
+      'Dev Containers',
+      'Containers',
+      'Images',
+      'Networks',
+      'Volumes'
+    ])
+    expect(wrapper.find('[data-test="service-row-shop-web"]').exists()).toBe(false)
+  })
+
+  it('expands images, networks and volumes', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
     await flushPromises()
-    expect(wrapper.get('[data-test="tree"]').text()).toContain('solo')
-    expect(wrapper.get('[data-test="tree"]').text()).not.toContain('shop')
+    for (const group of ['images', 'networks', 'volumes']) {
+      await wrapper.get(`[data-test="group-${group}"]`).trigger('click')
+    }
+    const text = wrapper.get('[data-test="tree"]').text()
+    expect(text).toContain('nginx:1')
+    expect(text).toContain('52 MB')
+    expect(text).toContain('bridge')
+    expect(text).toContain('pgdata')
+  })
+
+  it('collapses the whole Docker node', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="group-docker"]').trigger('click')
+    expect(wrapper.find('[data-test="group-images"]').exists()).toBe(false)
+  })
+
+  it('follows what the worker pushes', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    treeListeners.at(-1)!({ ...emptyTree(), projects: [{ ...tree.projects[0]!, name: 'other' }] })
+    await flushPromises()
+    expect(wrapper.get('[data-test="tree"]').text()).toContain('Docker-compose: other')
+    expect(wrapper.get('[data-test="tree"]').text()).not.toContain('Docker-compose: shop')
+  })
+
+  it('asks for the tree when the worker says it is too big to post', async () => {
+    const { host } = fakeHost(workspace)
+    mount(App, { props: { host } })
+    await flushPromises()
+    treeListeners.at(-1)!(null)
+    await flushPromises()
+    expect(host.loadTree).toHaveBeenCalledTimes(2)
   })
 
   it('points the service section at the clicked service', async () => {
-    const { host, sent } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
+    const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
     await wrapper.get('[data-test="service-restart"]').trigger('click')
     await flushPromises()
@@ -119,9 +174,7 @@ describe('panel', () => {
   })
 
   it('runs container actions through the worker, not a terminal', async () => {
-    const { host, sent } = fakeHost({ ...workspace, terminals: [] })
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
+    const { host, sent, wrapper } = await mountWithProject({ ...workspace, terminals: [] })
     await wrapper.get('[data-test="action-stop"]').trigger('click')
     await flushPromises()
     expect(host.containerAction).toHaveBeenCalledWith('abc', 'stop')
@@ -130,14 +183,13 @@ describe('panel', () => {
   })
 
   it('offers start and remove only for a stopped container, and remove needs a second click', async () => {
-    const { host } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
+    const { host, wrapper } = await mountWithProject()
     expect(wrapper.find('[data-test="action-remove"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="action-start"]').exists()).toBe(false)
+    const stopped = { ...container, state: 'exited', status: 'Exited (0)' }
     treeListeners.at(-1)!({
-      projects: [],
-      containers: [{ ...container, state: 'exited', status: 'Exited (0)' }]
+      ...tree,
+      projects: [{ ...tree.projects[0]!, services: [{ name: 'web', containers: [stopped] }] }]
     })
     await flushPromises()
     expect(wrapper.find('[data-test="action-stop"]').exists()).toBe(false)
@@ -149,21 +201,18 @@ describe('panel', () => {
   })
 
   it('opens a shell in the chosen terminal by the container name', async () => {
-    const { host, sent } = fakeHost(workspace)
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
+    const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="action-shell"]').trigger('click')
     await flushPromises()
     expect(sent[0]).toEqual({ terminalId: 't-1', text: 'docker exec -it shop-web-1 sh', enter: true })
   })
 
   it('shows a failed container action', async () => {
-    const { host } = fakeHost(workspace)
+    const { host, wrapper } = await mountWithProject()
     host.containerAction = vi.fn(async () => {
       throw new Error('no such container')
     })
-    const wrapper = mount(App, { props: { host } })
-    await flushPromises()
+    await wrapper.setProps({ host })
     await wrapper.get('[data-test="action-restart"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="status"]').text()).toBe('no such container')

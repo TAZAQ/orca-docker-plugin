@@ -24,7 +24,7 @@ export type HostBridge = {
   sendText(terminalId: string, text: string, enter: boolean): Promise<boolean>
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
-  onTreeChanged(listener: (tree: DockerTree) => void): Subscription
+  onTreeChanged(listener: (tree: DockerTree | null) => void): Subscription
 }
 
 export type Subscription = { dispose(): void }

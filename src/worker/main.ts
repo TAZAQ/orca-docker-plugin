@@ -4,7 +4,7 @@ import { formatStatus, summarizeProjects } from './compose-status'
 import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
 import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
-import { buildTree, TREE_EVENTS, TreePublisher } from './docker-tree'
+import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
 import { EventWatcher } from './event-watcher'
 import { registerPanelRequests } from './panel-requests'
 
@@ -41,13 +41,22 @@ export default async function activate(orca: OrcaApi): Promise<void> {
   }
 
   const tree = new TreePublisher({
-    load: async () => buildTree(await (await api()).listContainers()),
+    load: async () => {
+      const docker = await api()
+      const [containers, images, networks, volumes] = await Promise.all([
+        docker.listContainers(),
+        docker.listImages(),
+        docker.listNetworks(),
+        docker.listVolumes()
+      ])
+      return buildTree(containers, { images, networks, volumes })
+    },
     post: (value) => orca.panels.post(TREE_CHANGED_EVENT, value)
   })
 
   const watcher = new EventWatcher({
     api,
-    filters: { type: ['container'], event: TREE_EVENTS },
+    filters: { type: TREE_EVENT_TYPES, event: TREE_EVENTS },
     onEvent: (event) => {
       tree.schedule()
       const notification = notifying ? notifier.handle(event, Date.now()) : null

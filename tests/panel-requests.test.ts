@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { registerPanelRequests } from '../src/worker/panel-requests'
 import {
   CONTAINER_ACTION_REQUEST,
+  emptyTree,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type DockerTree
@@ -10,7 +11,7 @@ import {
 function fakeOrca(accepted = true) {
   const handlers = new Map<string, (input: unknown) => unknown>()
   const call = vi.fn(async () => ({ accepted }))
-  const tree: DockerTree = { projects: [], containers: [] }
+  const tree: DockerTree = emptyTree()
   const containerAction = vi.fn(async () => undefined)
   registerPanelRequests(
     {

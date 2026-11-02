@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type {
-  ContainerAction,
-  DockerTree,
-  TreeContainer,
-  TreeProject,
-  TreeService
+import {
+  emptyTree,
+  type ContainerAction,
+  type DockerTree,
+  type TreeContainer,
+  type TreeProject,
+  type TreeService
 } from '../shared/protocol'
 import {
   containerShellCommand,
@@ -73,11 +74,7 @@ async function refreshTree(): Promise<void> {
   try {
     tree.value = await props.host.loadTree()
   } catch (error) {
-    tree.value = {
-      projects: [],
-      containers: [],
-      error: error instanceof Error ? error.message : String(error)
-    }
+    tree.value = emptyTree(error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -192,7 +189,13 @@ function onVisible(): void {
 
 onMounted(() => {
   void refresh()
-  treeSubscription = props.host.onTreeChanged((value) => (tree.value = value))
+  treeSubscription = props.host.onTreeChanged((value) => {
+    if (value) {
+      tree.value = value
+    } else {
+      void refreshTree()
+    }
+  })
   void refreshTree()
   // Covers a restarted daemon, and asking keeps the worker from being reaped while the panel is open.
   treePoll = setInterval(() => void refreshTree(), TREE_POLL_MS)
@@ -337,6 +340,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+:root {
+  /* Orca has no success token; light-dark() follows the color-scheme its shell sets. */
+  --docker-running: light-dark(#1a7f37, #3fb950);
+}
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
