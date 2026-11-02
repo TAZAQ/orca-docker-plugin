@@ -1,0 +1,28 @@
+{
+  "name": "orca-docker-plugin",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "vite build && vite build -c vite.worker.config.ts",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@vitejs/plugin-vue": "6.0.9",
+    "@vue/test-utils": "2.5.1",
+    "jsdom": "30.1.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.2",
+    "vite-plugin-singlefile": "2.3.4",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.12"
+  }
+}
