@@ -380,7 +380,7 @@ describe('panel', () => {
     await menuItem(wrapper, 'Remove Image').trigger('click')
     expect(host.removeImage).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="dialog-message"]').text()).toContain(
-      'containers based on this image will be removed too, even running ones'
+      'The 1 container based on this image will be removed too, even if running'
     )
     expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('shop-web-1 (Up 5 days)')
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
@@ -427,6 +427,21 @@ describe('panel', () => {
     await flushPromises()
     expect(host.pruneImages).toHaveBeenCalledWith('unused')
     expect(wrapper.get('[data-test="status"]').text()).toBe('Removed 2 images, freed 30 MB')
+  })
+
+  it('counts in the singular for one image', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewPrune = vi.fn(async () => ({ images: [{ name: 'old:1', size: 1_000_000 }] }))
+    host.pruneImages = vi.fn(async () => ({ removed: 1, reclaimed: 1_000_000 }))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove Dangling Images').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('Remove 1 dangling image?')
+    expect(wrapper.get('[data-test="dialog-confirm"]').text()).toBe('Remove 1 image')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Removed 1 image, freed 1 MB')
   })
 
   it('says there is nothing to clean instead of asking', async () => {

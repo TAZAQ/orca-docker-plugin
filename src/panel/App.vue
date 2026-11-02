@@ -193,6 +193,10 @@ async function copy(label: string, text: string): Promise<void> {
 
 const PRUNE_LIST_MAX = 100
 
+function counted(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
 function askToRemoveImage(image: TreeImage): void {
   const containers = (tree.value?.containers ?? []).filter((item) => item.imageId === image.id)
   const tags = image.tags.length > 1 ? ` All its tags go too: ${image.tags.join(', ')}.` : ''
@@ -200,7 +204,7 @@ function askToRemoveImage(image: TreeImage): void {
     title: `Remove ${image.name}?`,
     message:
       containers.length > 0
-        ? `All ${containers.length} containers based on this image will be removed too, even running ones, and whatever they keep outside volumes is lost.${tags}`
+        ? `${containers.length === 1 ? 'The 1 container' : `All ${containers.length} containers`} based on this image will be removed too, even if running, and whatever they keep outside volumes is lost.${tags}`
         : `No container uses this image.${tags}`,
     items: containers.map((item) => `${item.name} (${item.status})`),
     confirmLabel: containers.length > 0 ? 'Remove image and containers' : 'Remove image',
@@ -234,10 +238,10 @@ async function askToPrune(mode: PruneMode): Promise<void> {
     const shown = images.slice(0, PRUNE_LIST_MAX).map((image) => `${image.name} (${formatSize(image.size)})`)
     const more = images.length - shown.length
     dialog.value = {
-      title: `Remove ${images.length} ${mode} images?`,
+      title: `Remove ${counted(images.length, `${mode} image`)}?`,
       message: `Frees up to ${total}, less where images share layers. Images used by any container stay, even a stopped one.`,
       items: more > 0 ? [...shown, `…and ${more} more`] : shown,
-      confirmLabel: `Remove ${images.length} images`,
+      confirmLabel: `Remove ${counted(images.length, 'image')}`,
       danger: true,
       confirm: () => void prune(mode)
     }
@@ -250,7 +254,7 @@ async function prune(mode: PruneMode): Promise<void> {
   status.value = { kind: 'info', text: 'Removing images…' }
   try {
     const { removed, reclaimed } = await props.host.pruneImages(mode)
-    status.value = { kind: 'info', text: `Removed ${removed} images, freed ${formatSize(reclaimed)}` }
+    status.value = { kind: 'info', text: `Removed ${counted(removed, 'image')}, freed ${formatSize(reclaimed)}` }
   } catch (error) {
     showError(error)
   }
