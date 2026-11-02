@@ -165,6 +165,30 @@ describe('panel', () => {
     expect(host.loadTree).toHaveBeenCalledTimes(2)
   })
 
+  it('searches the tree, opens what it found and hides the rest', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="tree-search"]').setValue('WEB')
+    const text = wrapper.get('[data-test="tree"]').text()
+    expect(text).toContain('Docker-compose: shop')
+    expect(wrapper.find('[data-test="service-row-shop-web"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="group-images"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="group-volumes"]').exists()).toBe(false)
+  })
+
+  it('says when the search found nothing and clears on Escape', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    const search = wrapper.get('[data-test="tree-search"]')
+    await search.setValue('nothing-like-this')
+    expect(wrapper.find('[data-test="tree-no-matches"]').exists()).toBe(true)
+    await search.trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[data-test="tree-no-matches"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="group-images"]').exists()).toBe(true)
+  })
+
   it('points the service section at the clicked service', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')

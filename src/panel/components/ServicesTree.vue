@@ -14,6 +14,7 @@ import {
   isRunning,
   runningCount
 } from '../container-state'
+import { filterTree, isTreeEmpty } from '../tree-filter'
 import ContainerActions from './ContainerActions.vue'
 import ContainerLine from './ContainerLine.vue'
 import TreeIcon from './TreeIcon.vue'
@@ -28,7 +29,20 @@ const emit = defineEmits<{
 const ROOT = 'docker'
 
 const expanded = ref(new Set([ROOT]))
-const allContainers = computed(() => props.tree?.containers ?? [])
+const search = ref('')
+const searching = computed(() => search.value.trim() !== '')
+const shown = computed(() => (props.tree ? filterTree(props.tree, search.value) : null))
+const noMatches = computed(() => searching.value && shown.value !== null && isTreeEmpty(shown.value))
+
+/** A search opens every group it found something in; collapsing returns when it is cleared. */
+function isOpen(key: string): boolean {
+  return searching.value || expanded.value.has(key)
+}
+
+/** While searching, an empty group is just noise. */
+function isGroupShown(items: readonly unknown[]): boolean {
+  return !searching.value || items.length > 0
+}
 
 function toggle(key: string): void {
   const next = new Set(expanded.value)
@@ -59,149 +73,164 @@ function pickProject(project: TreeProject): void {
 
 <template>
   <p v-if="tree === null" class="note">Loading…</p>
-  <ul v-else class="tree scroll" data-test="tree">
-    <li>
-      <button class="row" data-test="group-docker" @click="toggle(ROOT)">
-        <span class="chevron" :class="{ open: expanded.has(ROOT) }" />
-        <TreeIcon name="docker" :active="!tree.error" />
-        <span class="name">Docker</span>
-      </button>
-      <p v-if="tree.error" class="note error" data-test="tree-error">{{ tree.error }}</p>
-      <ul v-if="expanded.has(ROOT)" class="tree nested">
-        <li v-for="project in tree.projects" :key="project.name">
-          <button class="row" :data-test="`project-row-${project.name}`" @click="pickProject(project)">
-            <span class="chevron" :class="{ open: expanded.has(`project:${project.name}`) }" />
-            <TreeIcon
-              name="compose"
-              :active="containersOf(project).some(isRunning)"
-              :problem="containersOf(project).some(hasProblem)"
-            />
-            <span class="name">Docker-compose: {{ project.name }}</span>
-            <span class="meta">{{ runningCount(containersOf(project)) }}</span>
-          </button>
-          <ul v-if="expanded.has(`project:${project.name}`)" class="tree nested">
-            <li v-for="service in project.services" :key="service.name">
-              <div class="line">
-                <button
-                  class="row"
-                  :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
-                  :data-test="`service-row-${project.name}-${service.name}`"
-                  @click="emit('pick', project, service)"
-                >
-                  <span class="dot" :class="containerDot(service.containers)" />
-                  <span class="name">{{ service.name }}</span>
-                  <span class="meta">{{ serviceMeta(service) }}</span>
-                </button>
-                <ContainerActions
-                  v-if="service.containers.length === 1"
-                  :container="service.containers[0]!"
-                  :busy="busy.has(service.containers[0]!.id)"
-                  @action="(action) => emit('action', service.containers[0]!, action)"
-                  @shell="emit('shell', service.containers[0]!)"
-                />
-              </div>
-              <ul v-if="service.containers.length > 1" class="tree nested">
-                <ContainerLine
-                  v-for="container in service.containers"
-                  :key="container.id"
-                  :container="container"
-                  :busy="busy.has(container.id)"
-                  @action="(action) => emit('action', container, action)"
-                  @shell="emit('shell', container)"
-                />
-              </ul>
-            </li>
-          </ul>
-        </li>
+  <template v-else>
+    <input
+      v-model="search"
+      class="search"
+      type="search"
+      placeholder="Search containers, images…"
+      data-test="tree-search"
+      @keydown.esc="search = ''"
+    />
+    <p v-if="noMatches" class="note" data-test="tree-no-matches">Nothing found</p>
+    <ul v-else-if="shown" class="tree scroll" data-test="tree">
+      <li>
+        <button class="row" data-test="group-docker" @click="toggle(ROOT)">
+          <span class="chevron" :class="{ open: isOpen(ROOT) }" />
+          <TreeIcon name="docker" :active="!tree.error" />
+          <span class="name">Docker</span>
+        </button>
+        <p v-if="tree.error" class="note error" data-test="tree-error">{{ tree.error }}</p>
+        <ul v-if="isOpen(ROOT)" class="tree nested">
+          <li v-for="project in shown.projects" :key="project.name">
+            <button class="row" :data-test="`project-row-${project.name}`" @click="pickProject(project)">
+              <span class="chevron" :class="{ open: isOpen(`project:${project.name}`) }" />
+              <TreeIcon
+                name="compose"
+                :active="containersOf(project).some(isRunning)"
+                :problem="containersOf(project).some(hasProblem)"
+              />
+              <span class="name">Docker-compose: {{ project.name }}</span>
+              <span class="meta">{{ runningCount(containersOf(project)) }}</span>
+            </button>
+            <ul v-if="isOpen(`project:${project.name}`)" class="tree nested">
+              <li v-for="service in project.services" :key="service.name">
+                <div class="line">
+                  <button
+                    class="row"
+                    :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
+                    :data-test="`service-row-${project.name}-${service.name}`"
+                    @click="emit('pick', project, service)"
+                  >
+                    <span class="dot" :class="containerDot(service.containers)" />
+                    <span class="name">{{ service.name }}</span>
+                    <span class="meta">{{ serviceMeta(service) }}</span>
+                  </button>
+                  <ContainerActions
+                    v-if="service.containers.length === 1"
+                    :container="service.containers[0]!"
+                    :busy="busy.has(service.containers[0]!.id)"
+                    @action="(action) => emit('action', service.containers[0]!, action)"
+                    @shell="emit('shell', service.containers[0]!)"
+                  />
+                </div>
+                <ul v-if="service.containers.length > 1" class="tree nested">
+                  <ContainerLine
+                    v-for="container in service.containers"
+                    :key="container.id"
+                    :container="container"
+                    :busy="busy.has(container.id)"
+                    @action="(action) => emit('action', container, action)"
+                    @shell="emit('shell', container)"
+                  />
+                </ul>
+              </li>
+            </ul>
+          </li>
 
-        <li>
-          <button class="row" data-test="group-devContainers" @click="toggle('devContainers')">
-            <span class="chevron" :class="{ open: expanded.has('devContainers'), hidden: tree.devContainers.length === 0 }" />
-            <TreeIcon name="devContainers" :active="tree.devContainers.some(isRunning)" />
-            <span class="name">Dev Containers</span>
-          </button>
-          <ul v-if="expanded.has('devContainers')" class="tree nested">
-            <ContainerLine
-              v-for="container in tree.devContainers"
-              :key="container.id"
-              :container="container"
-              :busy="busy.has(container.id)"
-              @action="(action) => emit('action', container, action)"
-              @shell="emit('shell', container)"
-            />
-          </ul>
-        </li>
+          <li v-if="isGroupShown(shown.devContainers)">
+            <button class="row" data-test="group-devContainers" @click="toggle('devContainers')">
+              <span class="chevron" :class="{ open: isOpen('devContainers'), hidden: shown.devContainers.length === 0 }" />
+              <TreeIcon name="devContainers" :active="shown.devContainers.some(isRunning)" />
+              <span class="name">Dev Containers</span>
+            </button>
+            <ul v-if="isOpen('devContainers')" class="tree nested">
+              <ContainerLine
+                v-for="container in shown.devContainers"
+                :key="container.id"
+                :container="container"
+                :busy="busy.has(container.id)"
+                @action="(action) => emit('action', container, action)"
+                @shell="emit('shell', container)"
+              />
+            </ul>
+          </li>
 
-        <li>
-          <button class="row" data-test="group-containers" @click="toggle('containers')">
-            <span class="chevron" :class="{ open: expanded.has('containers'), hidden: allContainers.length === 0 }" />
-            <TreeIcon name="containers" />
-            <span class="name">Containers</span>
-            <span class="meta">{{ runningCount(allContainers) }}</span>
-          </button>
-          <ul v-if="expanded.has('containers')" class="tree nested">
-            <ContainerLine
-              v-for="container in allContainers"
-              :key="container.id"
-              :container="container"
-              :busy="busy.has(container.id)"
-              @action="(action) => emit('action', container, action)"
-              @shell="emit('shell', container)"
-            />
-          </ul>
-        </li>
+          <li v-if="isGroupShown(shown.containers)">
+            <button class="row" data-test="group-containers" @click="toggle('containers')">
+              <span class="chevron" :class="{ open: isOpen('containers'), hidden: shown.containers.length === 0 }" />
+              <TreeIcon name="containers" />
+              <span class="name">Containers</span>
+              <span class="meta">{{ runningCount(shown.containers) }}</span>
+            </button>
+            <ul v-if="isOpen('containers')" class="tree nested">
+              <ContainerLine
+                v-for="container in shown.containers"
+                :key="container.id"
+                :container="container"
+                :busy="busy.has(container.id)"
+                @action="(action) => emit('action', container, action)"
+                @shell="emit('shell', container)"
+              />
+            </ul>
+          </li>
 
-        <li>
-          <button class="row" data-test="group-images" @click="toggle('images')">
-            <span class="chevron" :class="{ open: expanded.has('images'), hidden: tree.images.length === 0 }" />
-            <TreeIcon name="images" />
-            <span class="name">Images</span>
-            <span class="meta">{{ tree.images.length }}</span>
-          </button>
-          <ul v-if="expanded.has('images')" class="tree nested">
-            <li v-for="image in tree.images" :key="image.id" class="row static" :title="image.tags.join('\n')">
-              <span class="name">{{ image.name }}</span>
-              <span class="meta">{{ formatSize(image.size) }}</span>
-            </li>
-          </ul>
-        </li>
+          <li v-if="isGroupShown(shown.images)">
+            <button class="row" data-test="group-images" @click="toggle('images')">
+              <span class="chevron" :class="{ open: isOpen('images'), hidden: shown.images.length === 0 }" />
+              <TreeIcon name="images" />
+              <span class="name">Images</span>
+              <span class="meta">{{ shown.images.length }}</span>
+            </button>
+            <ul v-if="isOpen('images')" class="tree nested">
+              <li v-for="image in shown.images" :key="image.id" class="row static" :title="image.tags.join('\n')">
+                <span class="name">{{ image.name }}</span>
+                <span class="meta">{{ formatSize(image.size) }}</span>
+              </li>
+            </ul>
+          </li>
 
-        <li>
-          <button class="row" data-test="group-networks" @click="toggle('networks')">
-            <span class="chevron" :class="{ open: expanded.has('networks'), hidden: tree.networks.length === 0 }" />
-            <TreeIcon name="networks" />
-            <span class="name">Networks</span>
-            <span class="meta">{{ tree.networks.length }}</span>
-          </button>
-          <ul v-if="expanded.has('networks')" class="tree nested">
-            <li v-for="network in tree.networks" :key="network.id" class="row static">
-              <span class="name">{{ network.name }}</span>
-              <span class="meta">{{ network.driver }}</span>
-            </li>
-          </ul>
-        </li>
+          <li v-if="isGroupShown(shown.networks)">
+            <button class="row" data-test="group-networks" @click="toggle('networks')">
+              <span class="chevron" :class="{ open: isOpen('networks'), hidden: shown.networks.length === 0 }" />
+              <TreeIcon name="networks" />
+              <span class="name">Networks</span>
+              <span class="meta">{{ shown.networks.length }}</span>
+            </button>
+            <ul v-if="isOpen('networks')" class="tree nested">
+              <li v-for="network in shown.networks" :key="network.id" class="row static">
+                <span class="name">{{ network.name }}</span>
+                <span class="meta">{{ network.driver }}</span>
+              </li>
+            </ul>
+          </li>
 
-        <li>
-          <button class="row" data-test="group-volumes" @click="toggle('volumes')">
-            <span class="chevron" :class="{ open: expanded.has('volumes'), hidden: tree.volumes.length === 0 }" />
-            <TreeIcon name="volumes" />
-            <span class="name">Volumes</span>
-            <span class="meta">{{ tree.volumes.length }}</span>
-          </button>
-          <ul v-if="expanded.has('volumes')" class="tree nested">
-            <li v-for="volume in tree.volumes" :key="volume.name" class="row static">
-              <span class="name">{{ volume.name }}</span>
-              <span class="meta">{{ volume.driver }}</span>
-            </li>
-          </ul>
-        </li>
-      </ul>
-    </li>
-  </ul>
+          <li v-if="isGroupShown(shown.volumes)">
+            <button class="row" data-test="group-volumes" @click="toggle('volumes')">
+              <span class="chevron" :class="{ open: isOpen('volumes'), hidden: shown.volumes.length === 0 }" />
+              <TreeIcon name="volumes" />
+              <span class="name">Volumes</span>
+              <span class="meta">{{ shown.volumes.length }}</span>
+            </button>
+            <ul v-if="isOpen('volumes')" class="tree nested">
+              <li v-for="volume in shown.volumes" :key="volume.name" class="row static">
+                <span class="name">{{ volume.name }}</span>
+                <span class="meta">{{ volume.driver }}</span>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </template>
 </template>
 
 <!-- Not scoped: ContainerLine draws the same rows. -->
 <style>
+.search {
+  width: 100%;
+  box-sizing: border-box;
+}
 .scroll {
   max-height: 45vh;
   overflow-y: auto;
