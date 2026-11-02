@@ -2,7 +2,7 @@
 
 Docker and Docker Compose in the Orca side panel, with crash notifications. Needs Orca 1.4.246+.
 
-<p align="center"><img src="docs/demo.gif" alt="Demo of the Docker panel: the live tree, search, context menus, logs and image cleanup" width="360"></p>
+<p align="center"><img src="docs/demo.gif" alt="Demo of the Docker panel in light and dark themes: the live tree, search, context menus, logs and image cleanup" width="720"></p>
 
 - Inspired by JetBrains software: follows the Docker node of the Services tool window. Independent project, not affiliated with JetBrains.
 - All code in this project is AI-generated.
