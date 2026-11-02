@@ -15,6 +15,8 @@ export type DockerContainer = {
   Names: string[]
   State: string
   Status: string
+  Image: string
+  Ports: { PrivatePort: number; PublicPort?: number; Type: string; IP?: string }[]
   Labels: Record<string, string>
 }
 

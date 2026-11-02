@@ -1,10 +1,20 @@
-import { SEND_TEXT_REQUEST, type SendTextInput, type SendTextOutput } from '../shared/protocol'
+import {
+  SEND_TEXT_REQUEST,
+  TREE_REQUEST,
+  type DockerTree,
+  type SendTextInput,
+  type SendTextOutput
+} from '../shared/protocol'
 
 /** Requests the panel sends through `orca.plugin.request`. */
 
 type PanelRequestsApi = {
   panels: { handle(name: string, handler: (input: unknown) => unknown): void }
   host: { call(method: string, params?: unknown): Promise<unknown> }
+}
+
+type PanelRequestsDeps = {
+  tree: { current(): Promise<DockerTree> }
 }
 
 function isSendTextInput(input: unknown): input is SendTextInput {
@@ -17,7 +27,9 @@ function isSendTextInput(input: unknown): input is SendTextInput {
   )
 }
 
-export function registerPanelRequests(orca: PanelRequestsApi): void {
+export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequestsDeps): void {
+  orca.panels.handle(TREE_REQUEST, () => deps.tree.current())
+
   orca.panels.handle(SEND_TEXT_REQUEST, async (input) => {
     if (!isSendTextInput(input)) {
       throw Object.assign(new Error(`${SEND_TEXT_REQUEST}: malformed input`), { code: 'invalid_params' })

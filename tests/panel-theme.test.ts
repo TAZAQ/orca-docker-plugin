@@ -1,8 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const source = readFileSync(new URL('../src/panel/App.vue', import.meta.url), 'utf8')
-const style = source.slice(source.indexOf('<style'))
+const panelFiles = ['App.vue', ...readdirSync(new URL('../src/panel/components/', import.meta.url)).map((file) => `components/${file}`)]
+const style = panelFiles
+  .map((file) => readFileSync(new URL(`../src/panel/${file}`, import.meta.url), 'utf8'))
+  .map((source) => source.slice(source.indexOf('<style')))
+  .join('\n')
 
 describe('panel theme', () => {
   it('reads colors only from the --orca-* tokens Orca provides', () => {

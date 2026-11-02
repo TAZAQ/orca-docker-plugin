@@ -3,7 +3,24 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { SEND_TEXT_REQUEST } from '../src/shared/protocol'
+import { SEND_TEXT_REQUEST, type DockerTree } from '../src/shared/protocol'
+
+const container = {
+  id: 'abc',
+  name: 'shop-web-1',
+  image: 'nginx',
+  state: 'running',
+  status: 'Up 5 days',
+  health: null,
+  ports: ['8080→80']
+}
+const tree: DockerTree = {
+  projects: [
+    { name: 'shop', configFiles: ['/srv/shop/compose.yaml'], services: [{ name: 'web', containers: [container] }] }
+  ],
+  containers: []
+}
+const treeListeners: ((value: DockerTree) => void)[] = []
 
 function fakeHost(context: WorkspaceContext) {
   const sent: { terminalId: string; text: string; enter: boolean }[] = []
@@ -12,6 +29,11 @@ function fakeHost(context: WorkspaceContext) {
     sendText: vi.fn(async (terminalId: string, text: string, enter: boolean) => {
       sent.push({ terminalId, text, enter })
       return true
+    }),
+    loadTree: vi.fn(async () => tree),
+    onTreeChanged: vi.fn((listener: (value: DockerTree) => void) => {
+      treeListeners.push(listener)
+      return { dispose: () => undefined }
     })
   }
   return { host, sent }
@@ -73,6 +95,38 @@ describe('panel', () => {
     expect(wrapper.text()).toContain('Open a terminal in this worktree')
   })
 
+  it('shows the tree and follows what the worker pushes', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="tree"]').text()).toContain('shop')
+    expect(wrapper.get('[data-test="service-row-shop-web"]').text()).toContain('8080→80')
+    treeListeners.at(-1)!({ projects: [], containers: [{ ...container, name: 'solo' }] })
+    await flushPromises()
+    expect(wrapper.get('[data-test="tree"]').text()).toContain('solo')
+    expect(wrapper.get('[data-test="tree"]').text()).not.toContain('shop')
+  })
+
+  it('points the service section at the clicked service', async () => {
+    const { host, sent } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    await wrapper.get('[data-test="service-restart"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml restart web')
+  })
+
+  it('shows why the tree is unavailable', async () => {
+    const { host } = fakeHost(workspace)
+    host.loadTree = vi.fn(async () => {
+      throw new Error('worker is down')
+    })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="tree-error"]').text()).toBe('worker is down')
+  })
+
   it('shows a host error', async () => {
     const { host } = fakeHost(workspace)
     host.sendText = vi.fn(async () => {
@@ -90,7 +144,10 @@ describe('createHostBridge', () => {
   function fakeOrca() {
     return {
       host: { call: vi.fn(async (): Promise<unknown> => workspace) },
-      plugin: { request: vi.fn(async (): Promise<unknown> => ({ accepted: true })) }
+      plugin: {
+        request: vi.fn(async (): Promise<unknown> => ({ accepted: true })),
+        on: vi.fn(() => ({ dispose: () => undefined }))
+      }
     }
   }
 

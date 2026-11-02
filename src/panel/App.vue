@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { DockerTree, TreeProject, TreeService } from '../shared/protocol'
 import {
   projectCommand,
   serviceCommand,
@@ -8,10 +9,13 @@ import {
   type ProjectAction,
   type ServiceAction
 } from '../shared/compose'
-import type { HostBridge, WorkspaceContext } from './bridge'
+import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
 import ActionIcon, { type IconName } from './components/ActionIcon.vue'
+import ServicesTree from './components/ServicesTree.vue'
 
 const props = defineProps<{ host: HostBridge }>()
+
+const TREE_POLL_MS = 30_000
 
 const context = ref<WorkspaceContext>(null)
 const loading = ref(true)
@@ -29,6 +33,10 @@ const lastCommand = ref('')
 const status = ref<{ kind: 'info' | 'error'; text: string } | null>(null)
 const confirmingDown = ref(false)
 let confirmTimer: ReturnType<typeof setTimeout> | undefined
+
+const tree = ref<DockerTree | null>(null)
+let treePoll: ReturnType<typeof setInterval> | undefined
+let treeSubscription: Subscription | undefined
 
 const target = computed<ComposeTarget>(() => ({
   projectName: projectName.value,
@@ -50,6 +58,27 @@ async function refresh(): Promise<void> {
     showError(error)
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshTree(): Promise<void> {
+  try {
+    tree.value = await props.host.loadTree()
+  } catch (error) {
+    tree.value = {
+      projects: [],
+      containers: [],
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+/** Points the Project and Service sections at what was clicked in the tree. */
+function pickService(project: TreeProject, picked: TreeService | null): void {
+  projectName.value = project.name
+  files.value = project.configFiles.join(', ')
+  if (picked) {
+    service.value = picked.name
   }
 }
 
@@ -125,12 +154,18 @@ function onVisible(): void {
 
 onMounted(() => {
   void refresh()
+  treeSubscription = props.host.onTreeChanged((value) => (tree.value = value))
+  void refreshTree()
+  // Covers a restarted daemon, and asking keeps the worker from being reaped while the panel is open.
+  treePoll = setInterval(() => void refreshTree(), TREE_POLL_MS)
   window.addEventListener('focus', refresh)
   document.addEventListener('visibilitychange', onVisible)
 })
 
 onBeforeUnmount(() => {
   clearTimeout(confirmTimer)
+  clearInterval(treePoll)
+  treeSubscription?.dispose()
   window.removeEventListener('focus', refresh)
   document.removeEventListener('visibilitychange', onVisible)
 })
@@ -150,6 +185,11 @@ onBeforeUnmount(() => {
         <ActionIcon name="restart" />
       </button>
     </header>
+
+    <section class="section">
+      <h2 class="title">Services</h2>
+      <ServicesTree :tree="tree" @pick="pickService" />
+    </section>
 
     <section class="section">
       <label class="field">

@@ -1,15 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import { registerPanelRequests } from '../src/worker/panel-requests'
-import { SEND_TEXT_REQUEST } from '../src/shared/protocol'
+import { SEND_TEXT_REQUEST, TREE_REQUEST, type DockerTree } from '../src/shared/protocol'
 
 function fakeOrca(accepted = true) {
   const handlers = new Map<string, (input: unknown) => unknown>()
   const call = vi.fn(async () => ({ accepted }))
-  registerPanelRequests({
-    panels: { handle: (name, handler) => void handlers.set(name, handler) },
-    host: { call }
-  })
-  return { call, send: (input: unknown) => handlers.get(SEND_TEXT_REQUEST)!(input) }
+  const tree: DockerTree = { projects: [], containers: [] }
+  registerPanelRequests(
+    {
+      panels: { handle: (name, handler) => void handlers.set(name, handler) },
+      host: { call }
+    },
+    { tree: { current: async () => tree } }
+  )
+  return {
+    call,
+    tree,
+    send: (input: unknown) => handlers.get(SEND_TEXT_REQUEST)!(input),
+    loadTree: () => handlers.get(TREE_REQUEST)!(null)
+  }
 }
 
 describe('registerPanelRequests', () => {
@@ -23,6 +32,11 @@ describe('registerPanelRequests', () => {
       text: 'docker compose ps',
       enter: false
     })
+  })
+
+  it('answers with the current tree', async () => {
+    const { loadTree, tree } = fakeOrca()
+    await expect(loadTree()).resolves.toBe(tree)
   })
 
   it('reports a terminal that refused the text', async () => {
