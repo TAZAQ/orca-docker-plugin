@@ -1,42 +1,75 @@
 # Orca Docker plugin
 
-Docker Compose в боковой панели Orca и уведомления о падении контейнеров. Плагин работает на публичном API Orca (манифест формата 2, `pluginApi: 1`) без патчей хоста. Нужна Orca 1.4.246 или новее.
+Docker and Docker Compose in the Orca side panel, with notifications when containers crash. The plugin runs on Orca's public plugin API (manifest format 2, `pluginApi: 1`) with no host patches. It needs Orca 1.4.246 or newer.
 
-## Установка для разработки
+Inspired by JetBrains software: the tree, its context menus and the overall workflow follow the Docker node of the Services tool window in JetBrains IDEs. This is an independent project, not affiliated with or endorsed by JetBrains.
+
+All code in this project is AI-generated.
+
+## Development setup
 
 ```sh
 npm install
 npm run build        # dist/: orca-plugin.json, panel.html, main.mjs
 ```
 
-Orca → Settings → Plugins → Development → добавить путь к папке `dist/` и одобрить запрошенные права. То же из терминала: `orca plugin dev load dist`, затем повторить команду с `--approve <fingerprint>` из её вывода.
+In Orca, open Settings → Plugins → Development, add the `dist/` folder and approve the requested access. From a terminal, run `orca plugin dev load dist`, then repeat the command with the `--approve <fingerprint>` it prints.
 
-## Что умеет
+## Features
 
-**Дерево Services** устроено как узел Docker в JetBrains: Docker-compose с сервисами, Dev Containers, Containers (все контейнеры), Images, Networks, Volumes. Оно обновляется само: worker следит за событиями Docker. Зелёная точка — есть работающие контейнеры, красная — контейнер в рестарт-лупе, unhealthy или dead. Поиск над деревом находит проекты, сервисы, контейнеры (по имени, образу, порту), образы, сети и тома и сам раскрывает группы с результатами. 
+### Services tree
 
-**Контекстное меню** открывается правым кликом. На Compose-проекте: Start All, Deploy (`up -d`), Restart, Stop, Down, Pull, Build, статус и логи в терминале. На сервисе из нескольких контейнеров: Start, Restart, Stop, логи, Rebuild. На контейнере: Restart, Pause, Stop, образ, логи, файлы, копирование ID, Inspect, процессы, Attach, Exec, Create Terminal, Rebuild Service. На образе: Inspect, копирование, Pull, Remove Image. На группе Images: Remove Dangling Images и Remove Unused Images. На корне Docker: Compose Up для проекта из папки воркспейса, у которого ещё нет контейнеров. Команды открываются в новой вкладке терминала воркспейса в фокусе, с абсолютными путями compose-файлов; действия с контейнером и просмотр идут напрямую через Docker API. Клик по запущенному контейнеру открывает его shell, повторный клик возвращает на ту же вкладку. Jump to Source и Open Project ждут поддержки открытия файлов в API Orca.
+The tree has the same layout as the Docker node in JetBrains IDEs: Docker-compose projects with their services, Dev Containers, Containers (every container), Images, Networks and Volumes.
 
-**Удаление образа** спрашивает подтверждение: окно перечисляет контейнеры на этом образе, они будут удалены вместе с ним, даже запущенные. Если список изменился после подтверждения, ничего не удаляется. Очистка показывает, что будет удалено; образы, которые использует хоть один контейнер, она не трогает.
+- It updates by itself, because the worker follows Docker events.
+- A green dot means containers are running. A red dot means a container is crash-looping, unhealthy or dead.
+- Search finds projects, services, containers (by name, image or port), images, networks and volumes, and opens the groups with matches.
+- Clicking a running container opens its shell in a new terminal tab. Clicking it again returns to that tab.
+- The row last clicked stays highlighted.
 
-**Логи** идут потоком прямо в панель, последние 5000 строк, с фильтром и автопрокруткой. Цветовые коды терминала убираются. Показывается один контейнер за раз.
+### Context menus
 
-**Worker** напрямую подключается к Docker Engine API (сокет берётся из текущего `docker context`):
+Right-click a row to open its menu:
 
-- уведомляет, если контейнер упал сам (не после stop/down), получил OOM или стал unhealthy; при рестарт-лупе — не чаще раза в 10 минут;
-- команды в палитре: `Docker: Show Compose Status`, `Docker: Toggle Crash Notifications`.
+| Row | Actions |
+| --- | --- |
+| Compose project | Start All, Deploy (`up -d`), Restart, Stop, Down, Pull, Build, status and logs in a terminal, Copy Compose File Path |
+| Service with several containers | Start, Restart, Stop, logs in a terminal, Rebuild |
+| Container | Restart, Pause, Stop, Image, Show Logs, Show Files, Copy Container ID, Copy Image ID, Inspect, Show Processes, Attach, Exec, Create Terminal, Rebuild Service |
+| Image | Inspect, Copy Image ID, Copy Image Name, Pull, Remove Image |
+| Images group | Remove Dangling Images, Remove Unused Images |
+| Docker root | Compose Up in Workspace Folder, for a project with no containers yet |
 
-## Ограничения
+Commands open in a new terminal tab of the focused workspace and use absolute compose file paths. Container actions and details go straight to the Docker API. Jump to Source and Open Project wait for file opening in Orca's plugin API.
 
-- Профили Compose и другие файлы проекта из панели не выбираются: команды берут файлы, с которыми проект был запущен.
-- Сети и тома пока только показываются, удалять их из панели нельзя.
-- Плагинам пока нельзя создавать терминалы через API, поэтому worker вызывает CLI `orca-ide`. Если у воркспейса в фокусе нет терминалов, а его имя и ветка не уникальны, откройте в нём любой терминал: API не называет воркспейс точнее.
-- Раскрытые группы дерева не запоминаются.
-- Worker получает урезанное окружение: `DOCKER_HOST` и `DOCKER_CONTEXT` не видны, endpoint берётся из `~/.docker`. Поддерживаются `unix://`, `npipe://` и `tcp://` без TLS.
-- Worker запускается при первом событии Orca (смена статуса агента, создание воркспейса), при вызове команды из палитры или при запросе из панели. Чтобы Orca не выгружала его через 5 минут простоя, worker раз в 2 минуты делает лёгкий `storage.get`. Он занимает один из 5 слотов активных worker.
-- Команды рассчитаны на POSIX-shell в терминале.
+### Removing images
 
-## Проверки
+Removing an image asks for confirmation. The dialog lists the containers based on that image, because they are removed with it, even running ones. If that list changes after you confirm, nothing is removed.
+
+Cleanup shows what it would remove first. It leaves alone any image a container uses, even a stopped one.
+
+### Logs
+
+Logs stream into the panel, keeping the last 5000 lines, with a line filter and auto-scroll. Terminal color codes are stripped. The panel shows one container at a time.
+
+### Worker
+
+The worker talks to the Docker Engine API directly, using the socket of the current `docker context`.
+
+- It notifies you when a container crashes by itself (not after stop or down), runs out of memory or turns unhealthy. For a crash loop, it notifies at most once every 10 minutes.
+- It adds two commands to the palette: `Docker: Show Compose Status` and `Docker: Toggle Crash Notifications`.
+
+## Limitations
+
+- Compose profiles and other project files cannot be chosen in the panel: commands use the files the project was started with.
+- Networks and volumes are read-only for now.
+- Plugins cannot create terminals through the API yet, so the worker calls the `orca-ide` CLI. If the focused workspace has no terminals and its name and branch are not unique, open any terminal in it, because the API does not identify the workspace more precisely.
+- Expanded tree groups are not remembered.
+- The worker gets a reduced environment: it cannot see `DOCKER_HOST` or `DOCKER_CONTEXT`, so the endpoint comes from `~/.docker`. It supports `unix://`, `npipe://` and `tcp://` without TLS.
+- The worker starts on the first Orca event (agent status change, workspace creation), a palette command or a request from the panel. To keep Orca from unloading it after 5 idle minutes, it makes a light `storage.get` call every 2 minutes. It takes one of the 5 active worker slots.
+- Commands assume a POSIX shell in the terminal.
+
+## Checks
 
 ```sh
 npm test
