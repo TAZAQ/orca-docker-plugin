@@ -100,7 +100,10 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     return { enabled }
   })
 
-  registerPanelRequests(orca, { tree })
+  registerPanelRequests(orca, {
+    tree,
+    containerAction: async (id, action) => (await api()).containerAction(id, action)
+  })
 
   // Subscribed only so Orca starts the worker early; the watcher is what does the work.
   orca.events.on('workspace.created', () => undefined)

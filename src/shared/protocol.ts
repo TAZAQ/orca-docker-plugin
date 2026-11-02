@@ -38,3 +38,9 @@ export type DockerTree = {
   /** Set when the daemon could not be read. */
   error?: string
 }
+
+export const CONTAINER_ACTION_REQUEST = 'docker.container'
+export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'remove'] as const
+
+export type ContainerAction = (typeof CONTAINER_ACTIONS)[number]
+export type ContainerActionInput = { id: string; action: ContainerAction }

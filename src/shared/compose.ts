@@ -71,6 +71,10 @@ function render(args: string[]): string {
   return ['docker', 'compose', ...args].map(shellQuote).join(' ')
 }
 
+export function containerShellCommand(container: string): string {
+  return ['docker', 'exec', '-it', container, 'sh'].map(shellQuote).join(' ')
+}
+
 export function projectCommand(target: ComposeTarget, action: ProjectAction): string {
   return render([...targetArgs(target), ...PROJECT_ARGS[action]])
 }

@@ -31,6 +31,7 @@ function fakeHost(context: WorkspaceContext) {
       return true
     }),
     loadTree: vi.fn(async () => tree),
+    containerAction: vi.fn(async () => undefined),
     onTreeChanged: vi.fn((listener: (value: DockerTree) => void) => {
       treeListeners.push(listener)
       return { dispose: () => undefined }
@@ -115,6 +116,57 @@ describe('panel', () => {
     await wrapper.get('[data-test="service-restart"]').trigger('click')
     await flushPromises()
     expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml restart web')
+  })
+
+  it('runs container actions through the worker, not a terminal', async () => {
+    const { host, sent } = fakeHost({ ...workspace, terminals: [] })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="action-stop"]').trigger('click')
+    await flushPromises()
+    expect(host.containerAction).toHaveBeenCalledWith('abc', 'stop')
+    expect(sent).toEqual([])
+    expect(wrapper.get('[data-test="status"]').text()).toBe('shop-web-1: stop done')
+  })
+
+  it('offers start and remove only for a stopped container, and remove needs a second click', async () => {
+    const { host } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="action-remove"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="action-start"]').exists()).toBe(false)
+    treeListeners.at(-1)!({
+      projects: [],
+      containers: [{ ...container, state: 'exited', status: 'Exited (0)' }]
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-test="action-stop"]').exists()).toBe(false)
+    const remove = wrapper.get('[data-test="action-remove"]')
+    await remove.trigger('click')
+    expect(host.containerAction).not.toHaveBeenCalled()
+    await remove.trigger('click')
+    expect(host.containerAction).toHaveBeenCalledWith('abc', 'remove')
+  })
+
+  it('opens a shell in the chosen terminal by the container name', async () => {
+    const { host, sent } = fakeHost(workspace)
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="action-shell"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({ terminalId: 't-1', text: 'docker exec -it shop-web-1 sh', enter: true })
+  })
+
+  it('shows a failed container action', async () => {
+    const { host } = fakeHost(workspace)
+    host.containerAction = vi.fn(async () => {
+      throw new Error('no such container')
+    })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="action-restart"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('no such container')
   })
 
   it('shows why the tree is unavailable', async () => {

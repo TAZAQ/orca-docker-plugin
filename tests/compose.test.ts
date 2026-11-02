@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectCommand, serviceCommand, shellQuote, splitList, type ComposeTarget } from '../src/shared/compose'
+import { containerShellCommand, projectCommand, serviceCommand, shellQuote, splitList, type ComposeTarget } from '../src/shared/compose'
 
 const plain: ComposeTarget = { projectName: '', files: [], profiles: [] }
 
@@ -60,5 +60,12 @@ describe('serviceCommand', () => {
 
   it('refuses an empty service', () => {
     expect(() => serviceCommand(plain, 'stop', '  ')).toThrow('service name is required')
+  })
+})
+
+describe('containerShellCommand', () => {
+  it('quotes the container name', () => {
+    expect(containerShellCommand('web')).toBe('docker exec -it web sh')
+    expect(containerShellCommand("a b'c")).toBe(`docker exec -it 'a b'\\''c' sh`)
   })
 })

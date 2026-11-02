@@ -1,9 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { DockerTree, TreeContainer, TreeProject, TreeService } from '../../shared/protocol'
+import type {
+  ContainerAction,
+  DockerTree,
+  TreeContainer,
+  TreeProject,
+  TreeService
+} from '../../shared/protocol'
+import ContainerActions from './ContainerActions.vue'
 
-const props = defineProps<{ tree: DockerTree | null }>()
-const emit = defineEmits<{ pick: [project: TreeProject, service: TreeService | null] }>()
+const props = defineProps<{ tree: DockerTree | null; busy: ReadonlySet<string> }>()
+const emit = defineEmits<{
+  pick: [project: TreeProject, service: TreeService | null]
+  action: [container: TreeContainer, action: ContainerAction]
+  shell: [container: TreeContainer]
+}>()
 
 const STANDALONE = 'Containers'
 
@@ -74,6 +85,7 @@ function pickProject(project: TreeProject): void {
       </button>
       <ul v-if="!collapsed.has(project.name)" class="tree nested">
         <li v-for="service in project.services" :key="service.name">
+          <div class="line">
           <button
             class="row"
             :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
@@ -84,16 +96,32 @@ function pickProject(project: TreeProject): void {
             <span class="name">{{ service.name }}</span>
             <span class="meta">{{ serviceMeta(service) }}</span>
           </button>
+          <ContainerActions
+            v-if="service.containers.length === 1"
+            :container="service.containers[0]!"
+            :busy="busy.has(service.containers[0]!.id)"
+            @action="(action) => emit('action', service.containers[0]!, action)"
+            @shell="emit('shell', service.containers[0]!)"
+          />
+          </div>
           <ul v-if="service.containers.length > 1" class="tree nested">
             <li
               v-for="container in service.containers"
               :key="container.id"
-              class="row static"
+              class="line"
               :title="`${container.image} · ${container.status}`"
             >
-              <span class="dot" :class="dotClass([container])" />
-              <span class="name muted">{{ container.name }}</span>
-              <span class="meta">{{ container.status }}</span>
+              <span class="row static">
+                <span class="dot" :class="dotClass([container])" />
+                <span class="name muted">{{ container.name }}</span>
+                <span class="meta">{{ container.status }}</span>
+              </span>
+              <ContainerActions
+                :container="container"
+                :busy="busy.has(container.id)"
+                @action="(action) => emit('action', container, action)"
+                @shell="emit('shell', container)"
+              />
             </li>
           </ul>
         </li>
@@ -110,12 +138,21 @@ function pickProject(project: TreeProject): void {
         <li
           v-for="container in tree.containers"
           :key="container.id"
-          class="row static"
+          class="line"
           :title="`${container.image} · ${container.status}`"
         >
-          <span class="dot" :class="dotClass([container])" />
-          <span class="name">{{ container.name }}</span>
-          <span class="meta">{{ container.ports.join(' ') || container.status }}</span>
+          <span class="row static">
+            <span class="dot" :class="dotClass([container])" />
+            <span class="name">{{ container.name }}</span>
+            <span class="meta">{{ container.ports.join(' ') || container.status }}</span>
+          </span>
+          <ContainerActions
+            :container="container"
+            :busy="busy.has(container.id)"
+            :data-test="`container-${container.name}`"
+            @action="(action) => emit('action', container, action)"
+            @shell="emit('shell', container)"
+          />
         </li>
       </ul>
     </li>
@@ -168,6 +205,22 @@ function pickProject(project: TreeProject): void {
 }
 .chevron.open {
   transform: rotate(90deg);
+}
+.line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.line > :deep(.actions) {
+  display: none;
+}
+.line:hover > :deep(.actions),
+.line:focus-within > :deep(.actions) {
+  display: flex;
+}
+.line:hover > .row .meta,
+.line:focus-within > .row .meta {
+  display: none;
 }
 /* Shape and theme tokens only: Orca has no green token, and a fixed color would suit one theme. */
 .dot {

@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { DockerTree, TreeProject, TreeService } from '../shared/protocol'
+import type {
+  ContainerAction,
+  DockerTree,
+  TreeContainer,
+  TreeProject,
+  TreeService
+} from '../shared/protocol'
 import {
+  containerShellCommand,
   projectCommand,
   serviceCommand,
   splitList,
@@ -35,6 +42,7 @@ const confirmingDown = ref(false)
 let confirmTimer: ReturnType<typeof setTimeout> | undefined
 
 const tree = ref<DockerTree | null>(null)
+const busyContainers = ref<ReadonlySet<string>>(new Set())
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 
@@ -80,6 +88,36 @@ function pickService(project: TreeProject, picked: TreeService | null): void {
   if (picked) {
     service.value = picked.name
   }
+}
+
+function setBusy(id: string, busy: boolean): void {
+  const next = new Set(busyContainers.value)
+  if (busy) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  busyContainers.value = next
+}
+
+async function runContainerAction(container: TreeContainer, action: ContainerAction): Promise<void> {
+  setBusy(container.id, true)
+  try {
+    await props.host.containerAction(container.id, action)
+    status.value = { kind: 'info', text: `${container.name}: ${action} done` }
+  } catch (error) {
+    showError(error)
+  } finally {
+    setBusy(container.id, false)
+  }
+}
+
+function openShell(container: TreeContainer): void {
+  if (!canSend.value) {
+    status.value = { kind: 'error', text: 'Open a terminal in this worktree first' }
+    return
+  }
+  void send(containerShellCommand(container.name))
 }
 
 function showError(error: unknown): void {
@@ -188,7 +226,13 @@ onBeforeUnmount(() => {
 
     <section class="section">
       <h2 class="title">Services</h2>
-      <ServicesTree :tree="tree" @pick="pickService" />
+      <ServicesTree
+        :tree="tree"
+        :busy="busyContainers"
+        @pick="pickService"
+        @action="runContainerAction"
+        @shell="openShell"
+      />
     </section>
 
     <section class="section">

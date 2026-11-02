@@ -1,5 +1,5 @@
 <script setup lang="ts">
-export type IconName = 'play' | 'restart' | 'stop' | 'down' | 'logs' | 'terminal' | 'build'
+export type IconName = 'play' | 'restart' | 'stop' | 'down' | 'logs' | 'terminal' | 'build' | 'remove'
 
 defineProps<{ name: IconName }>()
 
@@ -11,7 +11,8 @@ const PATHS: Record<IconName, string[]> = {
   down: ['M12 4v12', 'M6 10l6 6 6-6', 'M4 20h16'],
   logs: ['M4 6h16', 'M4 12h16', 'M4 18h10'],
   terminal: ['M4 17l6-6-6-6', 'M12 19h8'],
-  build: ['M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-3-3z']
+  build: ['M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-3-3z'],
+  remove: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13']
 }
 </script>
 

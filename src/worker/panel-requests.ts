@@ -1,6 +1,10 @@
 import {
+  CONTAINER_ACTION_REQUEST,
+  CONTAINER_ACTIONS,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
+  type ContainerAction,
+  type ContainerActionInput,
   type DockerTree,
   type SendTextInput,
   type SendTextOutput
@@ -15,6 +19,23 @@ type PanelRequestsApi = {
 
 type PanelRequestsDeps = {
   tree: { current(): Promise<DockerTree> }
+  containerAction(id: string, action: ContainerAction): Promise<void>
+}
+
+/** The id goes into a Docker API path, so nothing but a container id may get there. */
+const CONTAINER_ID = /^[0-9a-f]{12,64}$/
+
+function invalidParams(request: string): Error {
+  return Object.assign(new Error(`${request}: malformed input`), { code: 'invalid_params' })
+}
+
+function isContainerActionInput(input: unknown): input is ContainerActionInput {
+  const value = input as Partial<ContainerActionInput> | null
+  return (
+    typeof value?.id === 'string' &&
+    CONTAINER_ID.test(value.id) &&
+    CONTAINER_ACTIONS.includes(value.action as ContainerAction)
+  )
 }
 
 function isSendTextInput(input: unknown): input is SendTextInput {
@@ -30,9 +51,17 @@ function isSendTextInput(input: unknown): input is SendTextInput {
 export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequestsDeps): void {
   orca.panels.handle(TREE_REQUEST, () => deps.tree.current())
 
+  orca.panels.handle(CONTAINER_ACTION_REQUEST, async (input) => {
+    if (!isContainerActionInput(input)) {
+      throw invalidParams(CONTAINER_ACTION_REQUEST)
+    }
+    await deps.containerAction(input.id, input.action)
+    return null
+  })
+
   orca.panels.handle(SEND_TEXT_REQUEST, async (input) => {
     if (!isSendTextInput(input)) {
-      throw Object.assign(new Error(`${SEND_TEXT_REQUEST}: malformed input`), { code: 'invalid_params' })
+      throw invalidParams(SEND_TEXT_REQUEST)
     }
     return (await orca.host.call('terminal.sendText', input)) as SendTextOutput
   })

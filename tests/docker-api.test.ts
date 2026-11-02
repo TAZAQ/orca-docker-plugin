@@ -14,9 +14,11 @@ afterEach(async () => {
   server = null
 })
 
-async function fakeDaemon(handler: (url: string, res: ServerResponse) => void): Promise<DockerApi> {
+async function fakeDaemon(
+  handler: (url: string, res: ServerResponse, method: string) => void
+): Promise<DockerApi> {
   const socketPath = join(await mkdtemp(join(tmpdir(), 'fake-docker-')), 'docker.sock')
-  server = createServer((req, res) => handler(req.url ?? '', res))
+  server = createServer((req, res) => handler(req.url ?? '', res, req.method ?? ''))
   await new Promise<void>((resolve) => server!.listen(socketPath, resolve))
   return new DockerApi({ kind: 'socket', socketPath })
 }
@@ -33,6 +35,40 @@ describe('DockerApi', () => {
     })
     expect(await api.listContainers()).toHaveLength(1)
     expect(seen).toBe('/containers/json?all=1')
+  })
+
+  it.each([
+    ['start', 'POST /containers/c1/start'],
+    ['stop', 'POST /containers/c1/stop'],
+    ['restart', 'POST /containers/c1/restart'],
+    ['remove', 'DELETE /containers/c1']
+  ] as const)('%s calls the right endpoint', async (action, expected) => {
+    let seen = ''
+    const api = await fakeDaemon((url, res, method) => {
+      seen = `${method} ${url}`
+      res.statusCode = 204
+      res.end()
+    })
+    await api.containerAction('c1', action)
+    expect(seen).toBe(expected)
+  })
+
+  it('treats a container already in that state as done', async () => {
+    const api = await fakeDaemon((_url, res) => {
+      res.statusCode = 304
+      res.end()
+    })
+    await expect(api.containerAction('c1', 'stop')).resolves.toBeUndefined()
+  })
+
+  it('surfaces a failed action', async () => {
+    const api = await fakeDaemon((_url, res) => {
+      res.statusCode = 409
+      res.end(JSON.stringify({ message: 'container is running' }))
+    })
+    await expect(api.containerAction('c1', 'remove')).rejects.toEqual(
+      new DockerApiError('container is running', 409)
+    )
   })
 
   it('surfaces the daemon error message', async () => {

@@ -1,7 +1,8 @@
 import { request, type IncomingMessage, type RequestOptions } from 'node:http'
+import type { ContainerAction } from '../shared/protocol'
 import type { DockerEndpoint } from './docker-endpoint'
 
-/** Minimal Docker Engine API client: the plugin only reads containers and follows /events. */
+/** Minimal Docker Engine API client: containers, their lifecycle, and the /events stream. */
 
 export type DockerEvent = {
   Type: string
@@ -30,17 +31,20 @@ export class DockerApiError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000
+/** A stop waits out the container's grace period before Docker kills it. */
+export const ACTION_TIMEOUT_MS = 60_000
+const NOT_MODIFIED = 304
 
 export class DockerApi {
   constructor(private readonly endpoint: DockerEndpoint) {}
 
-  private open(path: string, signal?: AbortSignal): Promise<IncomingMessage> {
+  private open(path: string, signal?: AbortSignal, method = 'GET'): Promise<IncomingMessage> {
     const target: RequestOptions =
       this.endpoint.kind === 'socket'
         ? { socketPath: this.endpoint.socketPath }
         : { host: this.endpoint.host, port: this.endpoint.port }
     return new Promise((resolve, reject) => {
-      const req = request({ ...target, path, method: 'GET', signal, headers: { Host: 'docker' } })
+      const req = request({ ...target, path, method, signal, headers: { Host: 'docker' } })
       req.on('response', (res) => {
         if (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res)
@@ -78,6 +82,20 @@ export class DockerApi {
 
   listContainers(): Promise<DockerContainer[]> {
     return this.getJson<DockerContainer[]>('/containers/json?all=1')
+  }
+
+  async containerAction(id: string, action: ContainerAction): Promise<void> {
+    const [method, path] =
+      action === 'remove' ? ['DELETE', `/containers/${id}`] : ['POST', `/containers/${id}/${action}`]
+    try {
+      const res = await this.open(path, AbortSignal.timeout(ACTION_TIMEOUT_MS), method)
+      res.resume()
+    } catch (error) {
+      // 304: the container already is in that state, which is what was asked for.
+      if (!(error instanceof DockerApiError) || error.statusCode !== NOT_MODIFIED) {
+        throw error
+      }
+    }
   }
 
   /** Follows /events until the stream ends, the daemon goes away, or `signal` aborts. */
