@@ -1,5 +1,5 @@
 <script setup lang="ts">
-export type IconName = 'play' | 'restart' | 'stop' | 'down' | 'logs' | 'terminal' | 'build' | 'remove'
+export type IconName = 'play' | 'restart' | 'stop' | 'down' | 'logs' | 'terminal' | 'build' | 'remove' | 'pause' | 'deploy' | 'copy' | 'search' | 'source'
 
 defineProps<{ name: IconName }>()
 
@@ -12,7 +12,12 @@ const PATHS: Record<IconName, string[]> = {
   logs: ['M4 6h16', 'M4 12h16', 'M4 18h10'],
   terminal: ['M4 17l6-6-6-6', 'M12 19h8'],
   build: ['M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-3-3z'],
-  remove: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13']
+  remove: ['M4 7h16', 'M9 7V4h6v3', 'M6 7l1 13h10l1-13'],
+  pause: ['M8 5v14', 'M16 5v14'],
+  deploy: ['M4 12h14', 'M14 7l5 5-5 5', 'M5 5h6', 'M5 19h6'],
+  copy: ['M9 9h11v11H9z', 'M5 15H4V4h11v1'],
+  search: ['M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z', 'M20 20l-4-4'],
+  source: ['M4 20l1-4L16 5l3 3L8 19z']
 }
 </script>
 

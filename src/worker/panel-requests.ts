@@ -1,18 +1,25 @@
 import {
   CONTAINER_ACTION_REQUEST,
   CONTAINER_ACTIONS,
+  FILES_REQUEST,
+  INSPECT_REQUEST,
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  PROCESSES_REQUEST,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type ContainerAction,
   type ContainerActionInput,
+  type ContainerInput,
   type DockerTree,
+  type FilesInput,
+  type FilesOutput,
+  type InspectInput,
   type LogsRenewOutput,
-  type LogsStartInput,
   type LogsStartOutput,
   type LogsStreamInput,
+  type ProcessesOutput,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -27,6 +34,9 @@ type PanelRequestsApi = {
 type PanelRequestsDeps = {
   tree: { current(): Promise<DockerTree> }
   containerAction(id: string, action: ContainerAction): Promise<void>
+  inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
+  processes(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }>
+  files(id: string, path: string): Promise<string>
   logs: {
     start(id: string): string
     renew(streamId: string): boolean
@@ -37,13 +47,29 @@ type PanelRequestsDeps = {
 /** The id goes into a Docker API path, so nothing but a container id may get there. */
 const CONTAINER_ID = /^[0-9a-f]{12,64}$/
 
+const IMAGE_ID = /^sha256:[0-9a-f]{64}$/
+
 function invalidParams(request: string): Error {
   return Object.assign(new Error(`${request}: malformed input`), { code: 'invalid_params' })
 }
 
-function isLogsStartInput(input: unknown): input is LogsStartInput {
-  const value = input as Partial<LogsStartInput> | null
+function isContainerInput(input: unknown): input is ContainerInput {
+  const value = input as Partial<ContainerInput> | null
   return typeof value?.id === 'string' && CONTAINER_ID.test(value.id)
+}
+
+function isInspectInput(input: unknown): input is InspectInput {
+  const value = input as Partial<InspectInput> | null
+  return (
+    typeof value?.id === 'string' &&
+    ((value.kind === 'container' && CONTAINER_ID.test(value.id)) ||
+      (value.kind === 'image' && IMAGE_ID.test(value.id)))
+  )
+}
+
+function isFilesInput(input: unknown): input is FilesInput {
+  const value = input as Partial<FilesInput> | null
+  return isContainerInput(input) && typeof value?.path === 'string' && value.path.startsWith('/')
 }
 
 function isLogsStreamInput(input: unknown): input is LogsStreamInput {
@@ -80,8 +106,30 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
     return null
   })
 
+  orca.panels.handle(INSPECT_REQUEST, (input) => {
+    if (!isInspectInput(input)) {
+      throw invalidParams(INSPECT_REQUEST)
+    }
+    return deps.inspect(input.kind, input.id)
+  })
+
+  orca.panels.handle(PROCESSES_REQUEST, async (input): Promise<ProcessesOutput> => {
+    if (!isContainerInput(input)) {
+      throw invalidParams(PROCESSES_REQUEST)
+    }
+    const { Titles, Processes } = await deps.processes(input.id)
+    return { titles: Titles, processes: Processes ?? [] }
+  })
+
+  orca.panels.handle(FILES_REQUEST, async (input): Promise<FilesOutput> => {
+    if (!isFilesInput(input)) {
+      throw invalidParams(FILES_REQUEST)
+    }
+    return { text: await deps.files(input.id, input.path) }
+  })
+
   orca.panels.handle(LOGS_START_REQUEST, (input): LogsStartOutput => {
-    if (!isLogsStartInput(input)) {
+    if (!isContainerInput(input)) {
       throw invalidParams(LOGS_START_REQUEST)
     }
     return { streamId: deps.logs.start(input.id) }

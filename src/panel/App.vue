@@ -10,7 +10,10 @@ import {
   type TreeService
 } from '../shared/protocol'
 import {
+  containerAttachCommand,
+  containerExecCommand,
   containerShellCommand,
+  imagePullCommand,
   projectCommand,
   serviceCommand,
   splitList,
@@ -20,13 +23,19 @@ import {
 } from '../shared/compose'
 import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
 import ActionIcon, { type IconName } from './components/ActionIcon.vue'
+import { copyText } from './clipboard'
+import ContextMenu from './components/ContextMenu.vue'
+import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
+import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
+import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget } from './menus'
 
 const props = defineProps<{ host: HostBridge }>()
 
 const TREE_POLL_MS = 30_000
 const SAVE_DELAY_MS = 500
+const NO_TERMINAL = 'Open a terminal in this worktree first'
 
 const context = ref<WorkspaceContext>(null)
 const loading = ref(true)
@@ -47,6 +56,9 @@ let confirmTimer: ReturnType<typeof setTimeout> | undefined
 const tree = ref<DockerTree | null>(null)
 const busyContainers = ref<ReadonlySet<string>>(new Set())
 const logsContainer = ref<TreeContainer | null>(null)
+const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
+const details = ref<Details | null>(null)
+const dialog = ref<DialogRequest | null>(null)
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 let contextSubscription: Subscription | undefined
@@ -154,16 +166,130 @@ async function runContainerAction(container: TreeContainer, action: ContainerAct
   }
 }
 
-function openShell(container: TreeContainer): void {
+function sendToTerminal(command: string): void {
   if (!canSend.value) {
-    status.value = { kind: 'error', text: 'Open a terminal in this worktree first' }
+    status.value = { kind: 'error', text: NO_TERMINAL }
     return
   }
-  void send(containerShellCommand(container.name))
+  void send(command)
+}
+
+function openShell(container: TreeContainer): void {
+  sendToTerminal(containerShellCommand(container.name))
+}
+
+function pointAt(project: TreeProject): ComposeTarget {
+  return { projectName: project.name, files: project.configFiles, profiles: [] }
+}
+
+async function showDetails(
+  title: string,
+  load: () => Promise<string>,
+  browse?: Details['browse']
+): Promise<void> {
+  const request = { title, text: '', loading: true, browse }
+  details.value = request
+  try {
+    const text = await load()
+    if (details.value === request || details.value?.title === title) {
+      details.value = { ...request, text, loading: false }
+    }
+  } catch (error) {
+    details.value = { ...request, loading: false, text: errorText(error) }
+  }
+}
+
+function browseFiles(container: TreeContainer, path: string): void {
+  void showDetails(`Files: ${container.name}`, () => props.host.files(container.id, path), {
+    path,
+    open: (next) => browseFiles(container, next)
+  })
+}
+
+function formatProcesses(titles: string[], processes: string[][]): string {
+  const rows = [titles, ...processes]
+  const widths = titles.map((_, column) =>
+    Math.max(...rows.map((row) => (row[column] ?? '').length))
+  )
+  return rows
+    .map((row) => row.map((cell, column) => cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd())
+    .join('\n')
+}
+
+async function copy(label: string, text: string): Promise<void> {
+  status.value = (await copyText(text))
+    ? { kind: 'info', text: `${label} copied` }
+    : { kind: 'error', text: `Could not copy. ${label}: ${text}` }
+}
+
+const menuActions: MenuActions = {
+  canSend: () => canSend.value,
+  images: () => tree.value?.images ?? [],
+  compose: (project, action) => {
+    if (action === 'down') {
+      dialog.value = {
+        title: `Down ${project.name}?`,
+        message: 'This stops and removes the containers and networks of the project. Volumes stay.',
+        confirmLabel: 'Down',
+        danger: true,
+        confirm: () => sendToTerminal(projectCommand(pointAt(project), 'down'))
+      }
+      return
+    }
+    sendToTerminal(projectCommand(pointAt(project), action))
+  },
+  service: (project, service, action) =>
+    sendToTerminal(serviceCommand(pointAt(project), action, service.name)),
+  containerAction: (container, action) => void runContainerAction(container, action),
+  removeContainer: (container) => {
+    dialog.value = {
+      title: `Remove ${container.name}?`,
+      message: 'Its volumes stay.',
+      confirmLabel: 'Remove',
+      danger: true,
+      confirm: () => void runContainerAction(container, 'remove')
+    }
+  },
+  logs: (container) => (logsContainer.value = container),
+  files: (container) => browseFiles(container, '/'),
+  inspectContainer: (container) =>
+    void showDetails(`Inspect: ${container.name}`, async () =>
+      JSON.stringify(await props.host.inspect('container', container.id), null, 2)
+    ),
+  inspectImage: (name, id) =>
+    void showDetails(`Inspect: ${name}`, async () =>
+      JSON.stringify(await props.host.inspect('image', id), null, 2)
+    ),
+  processes: (container) =>
+    void showDetails(`Processes: ${container.name}`, async () => {
+      const { titles, processes } = await props.host.processes(container.id)
+      return formatProcesses(titles, processes)
+    }),
+  copy: (label, text) => void copy(label, text),
+  attach: (container) => sendToTerminal(containerAttachCommand(container.name)),
+  exec: (container) => {
+    dialog.value = {
+      title: `Exec in ${container.name}`,
+      message: 'The command runs in the chosen terminal.',
+      confirmLabel: 'Run',
+      input: { placeholder: 'ls -la /app' },
+      confirm: (command) => sendToTerminal(containerExecCommand(container.name, command))
+    }
+  },
+  shell: (container, shell) => sendToTerminal(containerShellCommand(container.name, shell)),
+  pullImage: (name) => sendToTerminal(imagePullCommand(name))
+}
+
+function openMenu(event: MouseEvent, target: MenuTarget): void {
+  menu.value = { x: event.clientX, y: event.clientY, items: buildMenu(target, menuActions) }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function showError(error: unknown): void {
-  status.value = { kind: 'error', text: error instanceof Error ? error.message : String(error) }
+  status.value = { kind: 'error', text: errorText(error) }
 }
 
 async function send(command: string): Promise<void> {
@@ -286,8 +412,11 @@ onBeforeUnmount(() => {
         @action="runContainerAction"
         @shell="openShell"
         @logs="(container) => (logsContainer = container)"
+        @menu="openMenu"
       />
     </section>
+
+    <DetailsViewer v-if="details" :details="details" @close="details = null" />
 
     <LogViewer
       v-if="logsContainer"
@@ -395,6 +524,15 @@ onBeforeUnmount(() => {
       <code v-if="lastCommand" class="command" data-test="last-command">{{ lastCommand }}</code>
       <p v-if="status" class="status" :class="status.kind" data-test="status">{{ status.text }}</p>
     </footer>
+
+    <ContextMenu
+      v-if="menu"
+      :items="menu.items"
+      :x="menu.x"
+      :y="menu.y"
+      @close="menu = null"
+    />
+    <DialogBox v-if="dialog" :request="dialog" @close="dialog = null" />
   </main>
 </template>
 

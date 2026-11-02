@@ -7,6 +7,7 @@ function container(name: string, overrides: Partial<TreeContainer> = {}): TreeCo
     id: name,
     name,
     image: 'nginx:1',
+    imageId: 'sha256:1',
     state: 'running',
     status: 'Up',
     health: null,

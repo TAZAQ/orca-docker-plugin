@@ -9,13 +9,14 @@ export type ComposeTarget = {
   profiles: string[]
 }
 
-export type ProjectAction = 'up' | 'restart' | 'stop' | 'down' | 'ps' | 'logs' | 'pull' | 'build'
+export type ProjectAction = 'up' | 'start' | 'restart' | 'stop' | 'down' | 'ps' | 'logs' | 'pull' | 'build'
 export type ServiceAction = 'up' | 'restart' | 'stop' | 'logs' | 'shell' | 'rebuild'
 
 export const LOG_TAIL_LINES = 200
 
 const PROJECT_ARGS: Record<ProjectAction, string[]> = {
   up: ['up', '-d'],
+  start: ['start'],
   restart: ['restart'],
   stop: ['stop'],
   down: ['down'],
@@ -71,8 +72,22 @@ function render(args: string[]): string {
   return ['docker', 'compose', ...args].map(shellQuote).join(' ')
 }
 
-export function containerShellCommand(container: string): string {
-  return ['docker', 'exec', '-it', container, 'sh'].map(shellQuote).join(' ')
+export function containerShellCommand(container: string, shell = 'sh'): string {
+  return ['docker', 'exec', '-it', container, shell].map(shellQuote).join(' ')
+}
+
+/** The command itself is what the person typed, so it stays as they wrote it. */
+export function containerExecCommand(container: string, command: string): string {
+  return `${['docker', 'exec', '-it', container].map(shellQuote).join(' ')} ${command.trim()}`
+}
+
+/** Without --sig-proxy=false, Ctrl+C in the terminal would stop the container. */
+export function containerAttachCommand(container: string): string {
+  return ['docker', 'attach', '--sig-proxy=false', container].map(shellQuote).join(' ')
+}
+
+export function imagePullCommand(image: string): string {
+  return ['docker', 'pull', image].map(shellQuote).join(' ')
 }
 
 export function projectCommand(target: ComposeTarget, action: ProjectAction): string {

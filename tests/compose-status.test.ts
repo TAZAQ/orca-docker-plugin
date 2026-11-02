@@ -6,7 +6,7 @@ function container(name: string, State: string, Status: string, project?: string
   const Labels: Record<string, string> = project
     ? { 'com.docker.compose.project': project, 'com.docker.compose.service': name }
     : {}
-  return { Id: `${name}-id-0000000000`, Names: [`/${name}`], State, Status, Image: 'nginx', Ports: [], Labels }
+  return { Id: `${name}-id-0000000000`, Names: [`/${name}`], State, Status, Image: 'nginx', ImageID: 'sha256:1', Ports: [], Labels }
 }
 
 describe('summarizeProjects', () => {

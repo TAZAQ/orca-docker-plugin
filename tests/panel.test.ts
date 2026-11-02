@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
@@ -9,6 +9,7 @@ const container = {
   id: 'abc',
   name: 'shop-web-1',
   image: 'nginx',
+  imageId: 'sha256:1',
   state: 'running',
   status: 'Up 5 days',
   health: null,
@@ -44,6 +45,9 @@ function fakeHost(context: WorkspaceContext) {
     }),
     loadTree: vi.fn(async () => tree),
     containerAction: vi.fn(async () => undefined),
+    inspect: vi.fn(async (): Promise<unknown> => ({ Id: 'abc' })),
+    processes: vi.fn(async () => ({ titles: ['PID', 'CMD'], processes: [['1', 'nginx']] })),
+    files: vi.fn(async (_id: string, path: string) => `listing of ${path}`),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -342,6 +346,161 @@ describe('panel', () => {
     vi.useRealTimers()
     expect(host.saveState).toHaveBeenCalledTimes(1)
     expect(host.saveState).toHaveBeenCalledWith(expect.objectContaining({ projectName: 'brave' }))
+  })
+
+  function menuItem(wrapper: VueWrapper, label: string) {
+    const item = wrapper
+      .findAll('[data-test="context-menu"] button')
+      .find((button) => button.text() === label)
+    if (!item) {
+      throw new Error(`no menu item ${label}`)
+    }
+    return item
+  }
+
+  it('offers the JetBrains group menu on a compose project', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    const labels = wrapper.findAll('[data-test="context-menu"] button').map((button) => button.text())
+    expect(labels).toEqual([
+      'Start All',
+      'Deploy',
+      'Restart',
+      'Stop',
+      'Down',
+      'Jump to Source',
+      'Copy Compose File Path'
+    ])
+    expect(menuItem(wrapper, 'Jump to Source').attributes('disabled')).toBeDefined()
+    await menuItem(wrapper, 'Deploy').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d')
+    expect(wrapper.find('[data-test="context-menu"]').exists()).toBe(false)
+  })
+
+  it('asks before Down from the menu', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Down').trigger('click')
+    expect(sent).toEqual([])
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
+  })
+
+  it('offers the JetBrains container menu on a running container', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    const labels = wrapper.findAll('[data-test="context-menu"] button').map((button) => button.text())
+    expect(labels).toEqual([
+      'Restart Container',
+      'Pause Container',
+      'Stop Container',
+      'Image',
+      'Show Logs',
+      'Show Files',
+      'Copy Container ID',
+      'Copy Image ID',
+      'Inspect',
+      'Show Processes',
+      'Attach',
+      'Exec',
+      'Create Terminal'
+    ])
+    await menuItem(wrapper, 'Pause Container').trigger('click')
+    expect(host.containerAction).toHaveBeenCalledWith('abc', 'pause')
+  })
+
+  it('offers unpause for a paused container and start for a stopped one', async () => {
+    const { wrapper } = await mountWithProject()
+    const withState = (state: string) => ({
+      ...tree,
+      projects: [
+        { ...tree.projects[0]!, services: [{ name: 'web', containers: [{ ...container, state }] }] }
+      ]
+    })
+    treeListeners.at(-1)!(withState('paused'))
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Unpause Container').exists()).toBe(true)
+    expect(menuItem(wrapper, 'Show Files').attributes('disabled')).toBeDefined()
+    treeListeners.at(-1)!(withState('exited'))
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Start Container').exists()).toBe(true)
+    expect(menuItem(wrapper, 'Attach').attributes('disabled')).toBeDefined()
+  })
+
+  it('types Attach without letting Ctrl+C reach the container', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Attach').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker attach --sig-proxy=false shop-web-1')
+  })
+
+  it('runs Exec with the typed command, and Create Terminal with the chosen shell', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Exec').trigger('click')
+    await wrapper.get('[data-test="dialog-input"]').setValue('env | sort')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]!.text).toBe('docker exec -it shop-web-1 env | sort')
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Terminal').trigger('click')
+    await menuItem(wrapper, 'bash').trigger('click')
+    await flushPromises()
+    expect(sent[1]!.text).toBe('docker exec -it shop-web-1 bash')
+  })
+
+  it('needs a terminal for Attach and Exec but not for Inspect', async () => {
+    const { wrapper } = await mountWithProject({ ...workspace, terminals: [] })
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Attach').attributes('disabled')).toBeDefined()
+    expect(menuItem(wrapper, 'Inspect').attributes('disabled')).toBeUndefined()
+  })
+
+  it('shows Inspect, Show Processes and Show Files inside the panel', async () => {
+    const { host, wrapper } = await mountWithProject()
+    const open = async (label: string) => {
+      await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+      await menuItem(wrapper, label).trigger('click')
+      await flushPromises()
+      return wrapper.get('[data-test="details-text"]').text()
+    }
+    expect(await open('Inspect')).toContain('"Id": "abc"')
+    expect(await open('Show Processes')).toBe('PID  CMD\n1    nginx')
+    expect(await open('Show Files')).toBe('listing of /')
+    await wrapper.get('[data-test="details-path"]').setValue('/etc')
+    await wrapper.get('[data-test="details-path"]').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(host.files).toHaveBeenLastCalledWith('abc', '/etc')
+    expect(wrapper.get('[data-test="details-text"]').text()).toBe('listing of /etc')
+  })
+
+  it('shows a failed details request in the viewer', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.processes = vi.fn(async () => {
+      throw new Error('container is not running')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Show Processes').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="details-text"]').text()).toBe('container is not running')
+  })
+
+  it('closes the menu on Escape and on a click outside', async () => {
+    const { wrapper } = await mountWithProject()
+    const row = wrapper.get('[data-test="project-row-shop"]')
+    await row.trigger('contextmenu')
+    await wrapper.get('[data-test="context-menu"]').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[data-test="context-menu"]').exists()).toBe(false)
+    await row.trigger('contextmenu')
+    window.dispatchEvent(new Event('blur'))
+    await flushPromises()
+    expect(wrapper.find('[data-test="context-menu"]').exists()).toBe(false)
   })
 
   it('shows why the tree is unavailable', async () => {

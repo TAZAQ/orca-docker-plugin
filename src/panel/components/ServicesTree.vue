@@ -15,6 +15,7 @@ import {
   runningCount
 } from '../container-state'
 import { filterTree, isTreeEmpty } from '../tree-filter'
+import type { MenuTarget } from '../menus'
 import ContainerActions from './ContainerActions.vue'
 import ContainerLine from './ContainerLine.vue'
 import TreeIcon from './TreeIcon.vue'
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   action: [container: TreeContainer, action: ContainerAction]
   shell: [container: TreeContainer]
   logs: [container: TreeContainer]
+  menu: [event: MouseEvent, target: MenuTarget]
 }>()
 
 const ROOT = 'docker'
@@ -66,6 +68,13 @@ function serviceMeta(service: TreeService): string {
   return only.ports.join(' ') || only.status
 }
 
+function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
+  const [only] = service.containers
+  return service.containers.length === 1 && only
+    ? { kind: 'container', container: only }
+    : { kind: 'service', project, service }
+}
+
 function pickProject(project: TreeProject): void {
   emit('pick', project, null)
   toggle(`project:${project.name}`)
@@ -94,7 +103,12 @@ function pickProject(project: TreeProject): void {
         <p v-if="tree.error" class="note error" data-test="tree-error">{{ tree.error }}</p>
         <ul v-if="isOpen(ROOT)" class="tree nested">
           <li v-for="project in shown.projects" :key="project.name">
-            <button class="row" :data-test="`project-row-${project.name}`" @click="pickProject(project)">
+            <button
+              class="row"
+              :data-test="`project-row-${project.name}`"
+              @click="pickProject(project)"
+              @contextmenu.prevent="emit('menu', $event, { kind: 'project', project })"
+            >
               <span class="chevron" :class="{ open: isOpen(`project:${project.name}`) }" />
               <TreeIcon
                 name="compose"
@@ -112,6 +126,7 @@ function pickProject(project: TreeProject): void {
                     :title="service.containers.map((item) => `${item.name} · ${item.image} · ${item.status}`).join('\n')"
                     :data-test="`service-row-${project.name}-${service.name}`"
                     @click="emit('pick', project, service)"
+                    @contextmenu.prevent="emit('menu', $event, serviceTarget(project, service))"
                   >
                     <span class="dot" :class="containerDot(service.containers)" />
                     <span class="name">{{ service.name }}</span>
@@ -135,6 +150,7 @@ function pickProject(project: TreeProject): void {
                     @action="(action) => emit('action', container, action)"
                     @shell="emit('shell', container)"
                     @logs="emit('logs', container)"
+                    @menu="(event) => emit('menu', event, { kind: 'container', container })"
                   />
                 </ul>
               </li>
@@ -156,6 +172,7 @@ function pickProject(project: TreeProject): void {
                 @action="(action) => emit('action', container, action)"
                 @shell="emit('shell', container)"
                 @logs="emit('logs', container)"
+                @menu="(event) => emit('menu', event, { kind: 'container', container })"
               />
             </ul>
           </li>
@@ -176,6 +193,7 @@ function pickProject(project: TreeProject): void {
                 @action="(action) => emit('action', container, action)"
                 @shell="emit('shell', container)"
                 @logs="emit('logs', container)"
+                @menu="(event) => emit('menu', event, { kind: 'container', container })"
               />
             </ul>
           </li>

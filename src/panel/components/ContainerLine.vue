@@ -5,13 +5,22 @@ import { containerDot } from '../container-state'
 import ContainerActions from './ContainerActions.vue'
 
 const props = defineProps<{ container: TreeContainer; busy: boolean }>()
-const emit = defineEmits<{ action: [action: ContainerAction]; shell: []; logs: [] }>()
+const emit = defineEmits<{
+  action: [action: ContainerAction]
+  shell: []
+  logs: []
+  menu: [event: MouseEvent]
+}>()
 
 const meta = computed(() => props.container.ports.join(' ') || props.container.status)
 </script>
 
 <template>
-  <li class="line" :title="`${container.image} · ${container.status}`">
+  <li
+    class="line"
+    :title="`${container.image} · ${container.status}`"
+    @contextmenu.prevent="emit('menu', $event)"
+  >
     <span class="row static">
       <span class="dot" :class="containerDot([container])" />
       <span class="name">{{ container.name }}</span>

@@ -11,6 +11,7 @@ function container(overrides: Partial<DockerContainer> & { name: string }): Dock
     State: 'running',
     Status: 'Up 1 minute',
     Image: 'nginx',
+    ImageID: 'sha256:1',
     Ports: [],
     Labels: {},
     ...rest

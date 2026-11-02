@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { ContainerAction, TreeContainer } from '../../shared/protocol'
+import { isUp } from '../container-state'
 import ActionIcon from './ActionIcon.vue'
 
 const props = defineProps<{ container: TreeContainer; busy: boolean }>()
@@ -8,7 +9,7 @@ const emit = defineEmits<{ action: [action: ContainerAction]; shell: []; logs: [
 
 const CONFIRM_MS = 4000
 
-const running = computed(() => props.container.state === 'running')
+const running = computed(() => isUp(props.container))
 const confirmingRemove = ref(false)
 let confirmTimer: ReturnType<typeof setTimeout> | undefined
 

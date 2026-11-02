@@ -3,9 +3,12 @@ import { registerPanelRequests } from '../src/worker/panel-requests'
 import {
   CONTAINER_ACTION_REQUEST,
   emptyTree,
+  FILES_REQUEST,
+  INSPECT_REQUEST,
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  PROCESSES_REQUEST,
   SEND_TEXT_REQUEST,
   TREE_REQUEST,
   type DockerTree
@@ -16,13 +19,21 @@ function fakeOrca(accepted = true) {
   const call = vi.fn(async () => ({ accepted }))
   const tree: DockerTree = emptyTree()
   const containerAction = vi.fn(async () => undefined)
+  const files = vi.fn(async () => 'total 0')
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
     {
       panels: { handle: (name, handler) => void handlers.set(name, handler) },
       host: { call }
     },
-    { tree: { current: async () => tree }, containerAction, logs }
+    {
+      tree: { current: async () => tree },
+      containerAction,
+      logs,
+      inspect: async (_kind, id) => ({ Id: id }),
+      processes: async () => ({ Titles: ['PID'], Processes: null }),
+      files
+    }
   )
   return {
     call,
@@ -31,6 +42,7 @@ function fakeOrca(accepted = true) {
     loadTree: () => handlers.get(TREE_REQUEST)!(null),
     containerAction,
     logs,
+    files,
     request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }
@@ -84,6 +96,43 @@ describe('registerPanelRequests', () => {
     const { logs, request } = fakeOrca()
     expect(() => request(LOGS_START_REQUEST, { id: '../../version' })).toThrow('malformed input')
     expect(logs.start).not.toHaveBeenCalled()
+  })
+
+  it('inspects a container or an image', async () => {
+    const { request } = fakeOrca()
+    await expect(request(INSPECT_REQUEST, { kind: 'container', id: 'abcdef012345' })).resolves.toEqual({
+      Id: 'abcdef012345'
+    })
+    const image = `sha256:${'a'.repeat(64)}`
+    await expect(request(INSPECT_REQUEST, { kind: 'image', id: image })).resolves.toEqual({ Id: image })
+  })
+
+  it.each([
+    [{ kind: 'image', id: 'abcdef012345' }],
+    [{ kind: 'container', id: '../version' }],
+    [{ kind: 'network', id: 'abcdef012345' }]
+  ])('refuses to inspect %j', (input) => {
+    const { request } = fakeOrca()
+    expect(() => request(INSPECT_REQUEST, input)).toThrow('malformed input')
+  })
+
+  it('answers with an empty process list for an idle container', async () => {
+    const { request } = fakeOrca()
+    await expect(request(PROCESSES_REQUEST, { id: 'abcdef012345' })).resolves.toEqual({
+      titles: ['PID'],
+      processes: []
+    })
+  })
+
+  it('lists files only by an absolute path', async () => {
+    const { request, files } = fakeOrca()
+    await expect(request(FILES_REQUEST, { id: 'abcdef012345', path: '/etc' })).resolves.toEqual({
+      text: 'total 0'
+    })
+    await expect(request(FILES_REQUEST, { id: 'abcdef012345', path: '-la' })).rejects.toMatchObject({
+      code: 'invalid_params'
+    })
+    expect(files).toHaveBeenCalledTimes(1)
   })
 
   it('reports a terminal that refused the text', async () => {

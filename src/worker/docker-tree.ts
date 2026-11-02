@@ -71,6 +71,7 @@ function toTreeContainer(container: DockerContainer): TreeContainer {
     id: container.Id,
     name: container.Names[0]?.replace(/^\//, '') ?? container.Id.slice(0, 12),
     image: container.Image,
+    imageId: container.ImageID,
     state: container.State,
     status: container.Status,
     health: readHealth(container.Status),

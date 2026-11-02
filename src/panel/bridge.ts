@@ -1,20 +1,26 @@
 import {
   CONTAINER_ACTION_REQUEST,
+  FILES_REQUEST,
+  INSPECT_REQUEST,
   LOGS_EVENT,
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
   PANEL_STATE_KEY,
+  PROCESSES_REQUEST,
   SEND_TEXT_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
   type ContainerAction,
   type ContainerActionInput,
   type DockerTree,
+  type FilesOutput,
+  type InspectInput,
   type LogsPayload,
   type LogsRenewOutput,
   type LogsStartOutput,
   type PanelState,
+  type ProcessesOutput,
   type SendTextInput,
   type SendTextOutput
 } from '../shared/protocol'
@@ -37,6 +43,9 @@ export type HostBridge = {
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
   onTreeChanged(listener: (tree: DockerTree | null) => void): Subscription
+  inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
+  processes(id: string): Promise<ProcessesOutput>
+  files(id: string, path: string): Promise<string>
   startLogs(id: string): Promise<string>
   renewLogs(streamId: string): Promise<boolean>
   stopLogs(streamId: string): Promise<void>
@@ -92,6 +101,16 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
     },
     onTreeChanged(listener) {
       return orca.plugin.on(TREE_CHANGED_EVENT, listener)
+    },
+    inspect(kind, id) {
+      return orca.plugin.request(INSPECT_REQUEST, { kind, id })
+    },
+    async processes(id) {
+      return (await orca.plugin.request(PROCESSES_REQUEST, { id })) as ProcessesOutput
+    },
+    async files(id, path) {
+      const output = (await orca.plugin.request(FILES_REQUEST, { id, path })) as FilesOutput
+      return output.text
     },
     async startLogs(id) {
       const output = (await orca.plugin.request(LOGS_START_REQUEST, { id })) as LogsStartOutput

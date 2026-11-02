@@ -14,6 +14,7 @@ export type TreeContainer = {
   id: string
   name: string
   image: string
+  imageId: string
   /** Docker's state: running, exited, restarting, paused, created, dead. */
   state: string
   /** Docker's human text, such as "Up 5 days". */
@@ -61,7 +62,7 @@ export function emptyTree(error?: string): DockerTree {
 }
 
 export const CONTAINER_ACTION_REQUEST = 'docker.container'
-export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'remove'] as const
+export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'pause', 'unpause', 'remove'] as const
 
 export type ContainerAction = (typeof CONTAINER_ACTIONS)[number]
 export type ContainerActionInput = { id: string; action: ContainerAction }
@@ -93,3 +94,13 @@ export type PanelState = {
   recentServices: string[]
   runImmediately: boolean
 }
+
+export const INSPECT_REQUEST = 'docker.inspect'
+export const PROCESSES_REQUEST = 'docker.processes'
+export const FILES_REQUEST = 'docker.files'
+
+export type InspectInput = { kind: 'container' | 'image'; id: string }
+export type ContainerInput = { id: string }
+export type FilesInput = { id: string; path: string }
+export type ProcessesOutput = { titles: string[]; processes: string[][] }
+export type FilesOutput = { text: string }

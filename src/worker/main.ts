@@ -118,7 +118,10 @@ export default async function activate(orca: OrcaApi): Promise<void> {
   registerPanelRequests(orca, {
     tree,
     logs,
-    containerAction: async (id, action) => (await api()).containerAction(id, action)
+    containerAction: async (id, action) => (await api()).containerAction(id, action),
+    inspect: async (kind, id) => (await api()).inspect(kind, id),
+    processes: async (id) => (await api()).containerProcesses(id),
+    files: async (id, path) => (await api()).execOutput(id, ['ls', '-la', path])
   })
 
   // Subscribed only so Orca starts the worker early; the watcher is what does the work.

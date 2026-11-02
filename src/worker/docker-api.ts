@@ -18,6 +18,7 @@ export type DockerContainer = {
   State: string
   Status: string
   Image: string
+  ImageID: string
   Ports: { PrivatePort: number; PublicPort?: number; Type: string; IP?: string }[]
   Labels: Record<string, string>
 }
@@ -40,17 +41,29 @@ export const LOG_TAIL_LINES = 500
 /** A stop waits out the container's grace period before Docker kills it. */
 export const ACTION_TIMEOUT_MS = 60_000
 const NOT_MODIFIED = 304
+/** A request's answer may not exceed 1 MiB, and a file listing has no natural limit. */
+export const EXEC_OUTPUT_MAX_CHARS = 512 * 1024
 
 export class DockerApi {
   constructor(private readonly endpoint: DockerEndpoint) {}
 
-  private open(path: string, signal?: AbortSignal, method = 'GET'): Promise<IncomingMessage> {
+  private open(
+    path: string,
+    signal?: AbortSignal,
+    method = 'GET',
+    body?: unknown
+  ): Promise<IncomingMessage> {
     const target: RequestOptions =
       this.endpoint.kind === 'socket'
         ? { socketPath: this.endpoint.socketPath }
         : { host: this.endpoint.host, port: this.endpoint.port }
     return new Promise((resolve, reject) => {
-      const req = request({ ...target, path, method, signal, headers: { Host: 'docker' } })
+      const payload = body === undefined ? undefined : JSON.stringify(body)
+      const headers = {
+        Host: 'docker',
+        ...(payload === undefined ? {} : { 'Content-Type': 'application/json' })
+      }
+      const req = request({ ...target, path, method, signal, headers })
       req.on('response', (res) => {
         if (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res)
@@ -71,7 +84,7 @@ export class DockerApi {
         })
       })
       req.on('error', reject)
-      req.end()
+      req.end(payload)
     })
   }
 
@@ -101,6 +114,37 @@ export class DockerApi {
   async listVolumes(): Promise<DockerVolume[]> {
     const { Volumes } = await this.getJson<{ Volumes: DockerVolume[] | null }>('/volumes')
     return Volumes ?? []
+  }
+
+  inspect(kind: 'container' | 'image', id: string): Promise<unknown> {
+    return this.getJson(`/${kind}s/${encodeURIComponent(id)}/json`)
+  }
+
+  containerProcesses(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }> {
+    return this.getJson(`/containers/${id}/top`)
+  }
+
+  /** Runs a command in a running container and returns what it printed. */
+  async execOutput(id: string, cmd: string[]): Promise<string> {
+    const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    const created = await this.open(`/containers/${id}/exec`, signal, 'POST', {
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: cmd
+    })
+    let answer = ''
+    created.setEncoding('utf8')
+    for await (const chunk of created) {
+      answer += chunk as string
+    }
+    const { Id } = JSON.parse(answer) as { Id: string }
+    const res = await this.open(`/exec/${Id}/start`, signal, 'POST', { Detach: false, Tty: false })
+    const decoder = new LogDecoder(false)
+    let output = ''
+    for await (const chunk of res) {
+      output += decoder.push(chunk as Buffer)
+    }
+    return output.slice(0, EXEC_OUTPUT_MAX_CHARS)
   }
 
   async containerAction(id: string, action: ContainerAction): Promise<void> {

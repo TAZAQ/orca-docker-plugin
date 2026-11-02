@@ -4,6 +4,11 @@ export function isRunning(container: TreeContainer): boolean {
   return container.state === 'running'
 }
 
+/** Paused or restarting containers exist as processes: they can be stopped but not started. */
+export function isUp(container: TreeContainer): boolean {
+  return ['running', 'paused', 'restarting'].includes(container.state)
+}
+
 export function hasProblem(container: TreeContainer): boolean {
   return (
     container.health === 'unhealthy' || container.state === 'restarting' || container.state === 'dead'

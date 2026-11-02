@@ -41,6 +41,8 @@ describe('DockerApi', () => {
     ['start', 'POST /containers/c1/start'],
     ['stop', 'POST /containers/c1/stop'],
     ['restart', 'POST /containers/c1/restart'],
+    ['pause', 'POST /containers/c1/pause'],
+    ['unpause', 'POST /containers/c1/unpause'],
     ['remove', 'DELETE /containers/c1']
   ] as const)('%s calls the right endpoint', async (action, expected) => {
     let seen = ''
@@ -102,6 +104,24 @@ describe('DockerApi', () => {
     await api.followLogs('c1', (text) => texts.push(text), new AbortController().signal)
     expect(texts.join('')).toBe('hello\n')
     expect(seen[1]).toBe('/containers/c1/logs?follow=1&stdout=1&stderr=1&tail=500')
+  })
+
+  it('reads what a command printed in a container', async () => {
+    const seen: string[] = []
+    const api = await fakeDaemon((url, res, method) => {
+      seen.push(`${method} ${url}`)
+      if (url.endsWith('/exec')) {
+        res.end(JSON.stringify({ Id: 'e1' }))
+        return
+      }
+      const payload = Buffer.from('total 0\n')
+      const header = Buffer.alloc(8)
+      header[0] = 1
+      header.writeUInt32BE(payload.length, 4)
+      res.end(Buffer.concat([header, payload]))
+    })
+    await expect(api.execOutput('c1', ['ls', '-la', '/'])).resolves.toBe('total 0\n')
+    expect(seen).toEqual(['POST /containers/c1/exec', 'POST /exec/e1/start'])
   })
 
   it('surfaces the daemon error message', async () => {
