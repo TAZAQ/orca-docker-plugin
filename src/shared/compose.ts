@@ -94,3 +94,83 @@ export function serviceCommand(
   const tail = action === 'shell' ? [name, 'sh'] : [name]
   return render([...targetArgs(target), ...SERVICE_ARGS[action], ...tail])
 }
+
+/** The options of a Docker Compose run configuration in JetBrains IDEs that `up` understands. */
+export type DeployOptions = {
+  /** Empty means every service. */
+  services: string[]
+  profiles: string[]
+  envFiles: string[]
+  build: 'missing' | 'never' | 'always'
+  recreate: 'changed' | 'all' | 'none'
+  removeOrphans: boolean
+  /** -V: new anonymous volumes instead of the old data. */
+  renewAnonVolumes: boolean
+  alwaysRecreateDeps: boolean
+}
+
+export type DownOptions = {
+  /** -v: named and anonymous volumes go too, with their data. */
+  removeVolumes: boolean
+  removeImages: 'none' | 'local' | 'all'
+  removeOrphans: boolean
+  /** Seconds before a container is killed; empty keeps Compose's default. */
+  timeout: number | null
+}
+
+export const DEFAULT_DEPLOY: DeployOptions = {
+  services: [],
+  profiles: [],
+  envFiles: [],
+  build: 'missing',
+  recreate: 'changed',
+  removeOrphans: false,
+  renewAnonVolumes: false,
+  alwaysRecreateDeps: false
+}
+
+export const DEFAULT_DOWN: DownOptions = {
+  removeVolumes: false,
+  removeImages: 'none',
+  removeOrphans: false,
+  timeout: null
+}
+
+/** Profiles and env files are options of `docker compose` itself, so they go before `up`. */
+function globalArgs(target: ComposeTarget, profiles: string[], envFiles: string[]): string[] {
+  return [
+    ...targetArgs(target),
+    ...profiles.flatMap((profile) => ['--profile', profile]),
+    ...envFiles.flatMap((file) => ['--env-file', file])
+  ]
+}
+
+export function composeUpCommand(target: ComposeTarget, options: DeployOptions): string {
+  return render([
+    ...globalArgs(target, options.profiles, options.envFiles),
+    'up',
+    '-d',
+    ...{ missing: [], never: ['--no-build'], always: ['--build'] }[options.build],
+    ...{ changed: [], all: ['--force-recreate'], none: ['--no-recreate'] }[options.recreate],
+    ...(options.removeOrphans ? ['--remove-orphans'] : []),
+    ...(options.renewAnonVolumes ? ['-V'] : []),
+    ...(options.alwaysRecreateDeps ? ['--always-recreate-deps'] : []),
+    ...options.services
+  ])
+}
+
+export function composeDownCommand(target: ComposeTarget, options: DownOptions): string {
+  return render([
+    ...targetArgs(target),
+    'down',
+    ...(options.removeVolumes ? ['-v'] : []),
+    ...(options.removeImages === 'none' ? [] : ['--rmi', options.removeImages]),
+    ...(options.removeOrphans ? ['--remove-orphans'] : []),
+    ...(options.timeout === null ? [] : ['-t', String(options.timeout)])
+  ])
+}
+
+/** --no-recreate leaves the running containers of the service as they are. */
+export function composeScaleCommand(target: ComposeTarget, service: string, count: number): string {
+  return render([...targetArgs(target), 'up', '-d', '--no-recreate', '--scale', `${service}=${count}`, service])
+}

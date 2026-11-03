@@ -252,9 +252,10 @@ describe('panel', () => {
     expect(labels).toEqual([
       'Start All',
       'Deploy',
+      'Deploy…',
       'Restart',
       'Stop',
-      'Down',
+      'Down…',
       'Pull',
       'Build',
       'Status in Terminal',
@@ -778,14 +779,68 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="status"]').text()).toBe('Open any terminal in this workspace first')
   })
 
-  it('asks before Down from the menu', async () => {
+  it('asks before Down, with its options and the command it runs', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Down').trigger('click')
+    await menuItem(wrapper, 'Down…').trigger('click')
     expect(sent).toEqual([])
+    const command = () => wrapper.get('[data-test="compose-command"]').text()
+    expect(command()).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
+    await wrapper.get('[data-test="compose-removeVolumes"]').trigger('click')
+    await wrapper.get('[data-test="compose-rmi"]').setValue('local')
+    await wrapper.get('[data-test="compose-timeout"]').setValue('30')
+    expect(command()).toBe('docker compose -p shop -f /srv/shop/compose.yaml down -v --rmi local -t 30')
+    await wrapper.get('[data-test="compose-run"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({
+      title: 'shop down',
+      command: 'docker compose -p shop -f /srv/shop/compose.yaml down -v --rmi local -t 30'
+    })
+    expect(wrapper.find('[data-test="compose-dialog"]').exists()).toBe(false)
+  })
+
+  it('refuses a Down timeout that is not a number', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Down…').trigger('click')
+    await wrapper.get('[data-test="compose-timeout"]').setValue('5; rm')
+    expect(wrapper.get('[data-test="compose-run"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('deploys chosen services with profiles, env files and build and recreate choices', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Deploy…').trigger('click')
+    await wrapper.get('[data-test="compose-service-web"]').setValue(true)
+    await wrapper.get('[data-test="compose-profiles"]').setValue('debug, tools')
+    await wrapper.get('[data-test="compose-env-files"]').setValue('.env.local')
+    await wrapper.get('[data-test="compose-build"]').setValue('always')
+    await wrapper.get('[data-test="compose-recreate"]').setValue('all')
+    await wrapper.get('[data-test="compose-removeOrphans"]').trigger('click')
+    await wrapper.get('[data-test="compose-run"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({
+      title: 'shop deploy',
+      command:
+        'docker compose -p shop -f /srv/shop/compose.yaml --profile debug --profile tools --env-file .env.local ' +
+        'up -d --build --force-recreate --remove-orphans web'
+    })
+  })
+
+  it('scales a service by a number only', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Scale Service…').trigger('click')
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('--scale web=')
+    await wrapper.get('[data-test="dialog-input"]').setValue('3 && rm')
+    expect(wrapper.get('[data-test="dialog-confirm"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="dialog-input"]').setValue('3')
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
     await flushPromises()
-    expect(sent[0]!.command).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
+    expect(sent[0]).toEqual({
+      title: 'web scale',
+      command: 'docker compose -p shop -f /srv/shop/compose.yaml up -d --no-recreate --scale web=3 web'
+    })
   })
 
   it('offers the JetBrains container menu on a running container', async () => {
@@ -807,7 +862,8 @@ describe('panel', () => {
       'Attach',
       'Exec',
       'Create Terminal',
-      'Rebuild Service'
+      'Rebuild Service',
+      'Scale Service…'
     ])
     await menuItem(wrapper, 'Pause Container').trigger('click')
     expect(host.containerAction).toHaveBeenCalledWith('abc', 'pause')

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { containerShellCommand, projectCommand, serviceCommand, shellQuote, type ComposeTarget } from '../src/shared/compose'
+import {
+  composeDownCommand,
+  composeScaleCommand,
+  composeUpCommand,
+  DEFAULT_DEPLOY,
+  DEFAULT_DOWN,
+  containerShellCommand, projectCommand, serviceCommand, shellQuote, type ComposeTarget } from '../src/shared/compose'
 
 const plain: ComposeTarget = { projectName: '', files: [] }
 
@@ -62,5 +68,43 @@ describe('containerShellCommand', () => {
     expect(containerShellCommand('web', 'bash')).toBe('docker exec -it web bash')
     expect(containerShellCommand('web', 'sh', 'root')).toBe('docker exec -it -u root web sh')
     expect(containerShellCommand("a b'c")).toBe(`docker exec -it 'a b'\\''c' sh`)
+  })
+})
+
+describe('compose deploy and down', () => {
+  const target = { projectName: 'shop', files: ['/srv/compose.yaml'] }
+
+  it('deploys with no extra flags by default', () => {
+    expect(composeUpCommand(target, DEFAULT_DEPLOY)).toBe('docker compose -p shop -f /srv/compose.yaml up -d')
+  })
+
+  it('puts profiles and env files before up, and quotes what needs it', () => {
+    expect(
+      composeUpCommand(target, {
+        ...DEFAULT_DEPLOY,
+        profiles: ['debug'],
+        envFiles: ['my env'],
+        build: 'never',
+        recreate: 'none',
+        renewAnonVolumes: true,
+        alwaysRecreateDeps: true,
+        services: ['web', 'db']
+      })
+    ).toBe(
+      "docker compose -p shop -f /srv/compose.yaml --profile debug --env-file 'my env' up -d --no-build --no-recreate -V --always-recreate-deps web db"
+    )
+  })
+
+  it('downs with volumes, images, orphans and a timeout', () => {
+    expect(composeDownCommand(target, DEFAULT_DOWN)).toBe('docker compose -p shop -f /srv/compose.yaml down')
+    expect(
+      composeDownCommand(target, { removeVolumes: true, removeImages: 'all', removeOrphans: true, timeout: 0 })
+    ).toBe('docker compose -p shop -f /srv/compose.yaml down -v --rmi all --remove-orphans -t 0')
+  })
+
+  it('scales without recreating what runs', () => {
+    expect(composeScaleCommand(target, 'web', 3)).toBe(
+      'docker compose -p shop -f /srv/compose.yaml up -d --no-recreate --scale web=3 web'
+    )
   })
 })

@@ -17,6 +17,7 @@ import {
 import {
   containerAttachCommand,
   containerExecCommand,
+  composeScaleCommand,
   containerShellCommand,
   imagePullCommand,
   projectCommand,
@@ -26,6 +27,7 @@ import {
 import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
 import ActionIcon from './components/ActionIcon.vue'
 import { copyText } from './clipboard'
+import ComposeDialog from './components/ComposeDialog.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
 import DashboardView from './components/DashboardView.vue'
@@ -54,6 +56,7 @@ const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
 const details = ref<Details | null>(null)
 const dialog = ref<DialogRequest | null>(null)
 const creatingNetwork = ref(false)
+const composeDialog = ref<{ project: TreeProject; mode: 'deploy' | 'down' } | null>(null)
 const view = ref<ViewOptions>(loadView())
 const dashboard = ref<{ data: Dashboard | null; error: string | null } | null>(null)
 let dashboardRequest = 0
@@ -419,17 +422,21 @@ const menuActions: MenuActions = {
   inspectObject: (kind, id, name) =>
     void showDetails(`Inspect: ${name}`, async () => JSON.stringify(await props.host.inspect(kind, id), null, 2)),
   removeObject: askToRemoveObject,
-  compose: (project, action) => {
-    if (action === 'down') {
-      dialog.value = {
-        title: `Down ${project.name}?`,
-        message: 'This stops and removes the containers and networks of the project. Volumes stay.',
-        confirmLabel: 'Down',
-        danger: true,
-        confirm: () => void runInTerminal(`${project.name} down`, projectCommand(pointAt(project), 'down'))
-      }
-      return
+  composeDialog: (project, mode) => (composeDialog.value = { project, mode }),
+  scale: (project, service) => {
+    dialog.value = {
+      title: `Scale ${service.name}`,
+      message: `It runs ${counted(service.containers.length, 'container')} now. Running ones stay as they are.`,
+      confirmLabel: 'Scale',
+      input: { placeholder: 'number of containers', prefix: `--scale ${service.name}=`, pattern: /^\d{1,3}$/ },
+      confirm: (count) =>
+        void runInTerminal(
+          `${service.name} scale`,
+          composeScaleCommand(pointAt(project), service.name, Number(count))
+        )
     }
+  },
+  compose: (project, action) => {
     void runInTerminal(`${project.name} ${action}`, projectCommand(pointAt(project), action))
   },
   composeInWorkspaceFolder: () =>
@@ -593,6 +600,13 @@ onBeforeUnmount(() => {
       @close="menu = null"
     />
     <DialogBox v-if="dialog" :request="dialog" @close="dialog = null" />
+    <ComposeDialog
+      v-if="composeDialog"
+      :project="composeDialog.project"
+      :mode="composeDialog.mode"
+      @run="(command) => void runInTerminal(`${composeDialog?.project.name} ${composeDialog?.mode}`, command)"
+      @close="composeDialog = null"
+    />
     <NetworkDialog
       v-if="creatingNetwork"
       @create="createNetwork"

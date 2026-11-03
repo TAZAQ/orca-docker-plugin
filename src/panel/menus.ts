@@ -55,6 +55,8 @@ export type MenuActions = {
   systemCleanup(): void
   openPort(port: number): void
   compose(project: TreeProject, action: ProjectAction): void
+  composeDialog(project: TreeProject, mode: 'deploy' | 'down'): void
+  scale(project: TreeProject, service: TreeService): void
   composeInWorkspaceFolder(): void
   service(project: TreeProject, service: TreeService, action: ServiceAction): void
   containerAction(container: TreeContainer, action: ContainerAction): void
@@ -94,9 +96,10 @@ function projectMenu(project: TreeProject, actions: MenuActions): MenuEntry[] {
   return [
     compose('Start All', 'play', 'start'),
     compose('Deploy', 'deploy', 'up'),
+    { label: 'Deploy…', icon: 'deploy', run: () => actions.composeDialog(project, 'deploy') },
     compose('Restart', 'restart', 'restart'),
     compose('Stop', 'stop', 'stop'),
-    compose('Down', 'down', 'down'),
+    { label: 'Down…', icon: 'down', run: () => actions.composeDialog(project, 'down') },
     'separator',
     compose('Pull', 'down', 'pull'),
     compose('Build', 'build', 'build'),
@@ -125,7 +128,8 @@ function serviceMenu(project: TreeProject, service: TreeService, actions: MenuAc
     run('Restart', 'restart', 'restart'),
     run('Stop', 'stop', 'stop'),
     run('Logs in Terminal', 'logs', 'logs'),
-    run('Rebuild', 'build', 'rebuild')
+    run('Rebuild', 'build', 'rebuild'),
+    { label: 'Scale…', icon: 'layers', run: () => actions.scale(project, service) }
   ]
 }
 
@@ -264,6 +268,11 @@ function containerMenu(
             label: 'Rebuild Service',
             icon: 'build',
               run: () => actions.service(compose.project, compose.service, 'rebuild')
+          } satisfies MenuItem,
+          {
+            label: 'Scale Service…',
+            icon: 'layers',
+            run: () => actions.scale(compose.project, compose.service)
           } satisfies MenuItem
         ]
       : []),
