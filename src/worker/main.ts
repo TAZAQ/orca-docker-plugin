@@ -5,7 +5,7 @@ import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
 import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
 import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
-import { cleanup, previewCleanup } from './docker-cleanup'
+import { cleanup, previewCleanup, previewSystemCleanup, systemCleanup } from './docker-cleanup'
 import { previewPrune, removeImageWithContainers } from './docker-images'
 import { EventWatcher } from './event-watcher'
 import { LogStreams } from './log-streams'
@@ -139,7 +139,10 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     previewCleanup: async (kind) => previewCleanup(await api(), kind),
     cleanup: async (kind, ids) => cleanup(await api(), kind, ids),
     createNetwork: async (input) => (await api()).createNetwork(input),
-    createVolume: async (name) => (await api()).createVolume(name)
+    createVolume: async (name) => (await api()).createVolume(name),
+    searchImages: async (term) => (await api()).searchImages(term),
+    previewSystemCleanup: async () => previewSystemCleanup(await api()),
+    systemCleanup: async (input) => systemCleanup(await api(), input)
   })
 
   // Subscribed only so Orca starts the worker early; the watcher is what does the work.

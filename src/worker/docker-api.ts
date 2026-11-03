@@ -171,6 +171,38 @@ export class DockerApi {
     await this.change('DELETE', `/containers/${id}`)
   }
 
+  /** Without force: the daemon keeps an image that something still uses. */
+  async removeUnusedImage(id: string): Promise<void> {
+    await this.change('DELETE', `/images/${encodeURIComponent(id)}`)
+  }
+
+  /**
+   * Bytes a build cache prune frees: not in use by a build, and not shared with an image,
+   * which keeps those layers anyway. `docker system df` counts it the same way.
+   */
+  async buildCacheSize(): Promise<number> {
+    const { BuildCache } = await this.getJson<{
+      BuildCache: { Size: number; InUse: boolean; Shared: boolean }[] | null
+    }>('/system/df?type=build-cache')
+    return (BuildCache ?? [])
+      .filter((item) => !item.InUse && !item.Shared)
+      .reduce((sum, item) => sum + item.Size, 0)
+  }
+
+  async pruneBuildCache(): Promise<number> {
+    const answer = (await this.change('POST', '/build/prune?all=true')) as { SpaceReclaimed?: number } | null
+    return answer?.SpaceReclaimed ?? 0
+  }
+
+  async searchImages(term: string): Promise<string[]> {
+    const found = await this.getJson<{ name: string; is_official: boolean; star_count: number }[]>(
+      `/images/search?term=${encodeURIComponent(term)}&limit=10`
+    )
+    return found
+      .sort((a, b) => Number(b.is_official) - Number(a.is_official) || b.star_count - a.star_count)
+      .map((item) => item.name)
+  }
+
   async forceRemoveContainer(id: string): Promise<void> {
     const res = await this.open(`/containers/${id}?force=1`, AbortSignal.timeout(ACTION_TIMEOUT_MS), 'DELETE')
     res.resume()

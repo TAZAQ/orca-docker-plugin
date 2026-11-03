@@ -3,6 +3,7 @@ import {
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
   FILES_REQUEST,
+  IMAGE_SEARCH_REQUEST,
   IMAGE_PRUNE_PREVIEW_REQUEST,
   IMAGE_PRUNE_REQUEST,
   IMAGE_REMOVE_REQUEST,
@@ -14,6 +15,8 @@ import {
   NETWORK_CREATE_REQUEST,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  SYSTEM_CLEANUP_PREVIEW_REQUEST,
+  SYSTEM_CLEANUP_REQUEST,
   VOLUME_CREATE_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
@@ -24,6 +27,7 @@ import {
   type ContainerActionInput,
   type DockerTree,
   type FilesOutput,
+  type ImageSearchOutput,
   type InspectInput,
   type LogsPayload,
   type NetworkCreateInput,
@@ -33,6 +37,9 @@ import {
   type PruneMode,
   type PrunePreview,
   type PruneResult,
+  type SystemCleanupInput,
+  type SystemCleanupPreview,
+  type SystemCleanupResult,
   type OpenTerminalInput
 } from '../shared/protocol'
 
@@ -61,6 +68,11 @@ export type HostBridge = {
   cleanup(kind: CleanupKind, ids: string[]): Promise<CleanupResult>
   createNetwork(input: NetworkCreateInput): Promise<void>
   createVolume(name: string): Promise<void>
+  searchImages(term: string): Promise<string[]>
+  previewSystemCleanup(): Promise<SystemCleanupPreview>
+  systemCleanup(input: SystemCleanupInput): Promise<SystemCleanupResult>
+  /** False when this Orca cannot open links, or the person cancelled. */
+  openExternal(url: string): Promise<boolean>
   startLogs(id: string): Promise<string>
   renewLogs(streamId: string): Promise<boolean>
   stopLogs(streamId: string): Promise<void>
@@ -71,6 +83,8 @@ export type Subscription = { dispose(): void }
 
 export type OrcaFrameApi = {
   on(event: string, listener: (payload: never) => void): Subscription
+  /** Desktop app only; it needs the click that triggered it. */
+  shell?: { openExternal(url: string): Promise<{ opened: boolean }> }
   host: { call(method: string, params?: unknown): Promise<unknown> }
   plugin: {
     request(name: string, input?: unknown, options?: { timeoutMs?: number }): Promise<unknown>
@@ -150,6 +164,26 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
     },
     async createVolume(name) {
       await orca.plugin.request(VOLUME_CREATE_REQUEST, { name })
+    },
+    async searchImages(term) {
+      const output = (await orca.plugin.request(IMAGE_SEARCH_REQUEST, { term })) as ImageSearchOutput
+      return output.names
+    },
+    async previewSystemCleanup() {
+      return (await orca.plugin.request(SYSTEM_CLEANUP_PREVIEW_REQUEST, undefined, {
+        timeoutMs: IMAGE_REQUEST_TIMEOUT_MS
+      })) as SystemCleanupPreview
+    },
+    async systemCleanup(input) {
+      return (await orca.plugin.request(SYSTEM_CLEANUP_REQUEST, input, {
+        timeoutMs: IMAGE_REQUEST_TIMEOUT_MS
+      })) as SystemCleanupResult
+    },
+    async openExternal(url) {
+      if (!orca.shell) {
+        return false
+      }
+      return (await orca.shell.openExternal(url)).opened
     },
     async startLogs(id) {
       const output = (await orca.plugin.request(LOGS_START_REQUEST, { id })) as LogsStartOutput

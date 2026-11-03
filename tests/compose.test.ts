@@ -60,6 +60,7 @@ describe('containerShellCommand', () => {
   it('quotes the container name', () => {
     expect(containerShellCommand('web')).toBe('docker exec -it web sh')
     expect(containerShellCommand('web', 'bash')).toBe('docker exec -it web bash')
+    expect(containerShellCommand('web', 'sh', 'root')).toBe('docker exec -it -u root web sh')
     expect(containerShellCommand("a b'c")).toBe(`docker exec -it 'a b'\\''c' sh`)
   })
 })

@@ -1,3 +1,5 @@
+import type { ViewOptions } from './menus'
+import { isUp } from './container-state'
 import type {
   DockerTree,
   TreeContainer,
@@ -56,4 +58,14 @@ export function isTreeEmpty(tree: DockerTree): boolean {
     tree.networks.length === 0 &&
     tree.volumes.length === 0
   )
+}
+
+/** The View Options of the Docker root: hiding stopped containers and untagged images. */
+export function applyView(tree: DockerTree, view: ViewOptions): DockerTree {
+  return {
+    ...tree,
+    devContainers: view.showStopped ? tree.devContainers : tree.devContainers.filter(isUp),
+    containers: view.showStopped ? tree.containers : tree.containers.filter(isUp),
+    images: view.showUntagged ? tree.images : tree.images.filter((image) => image.tags.length > 0)
+  }
 }

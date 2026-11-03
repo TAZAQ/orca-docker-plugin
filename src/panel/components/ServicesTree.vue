@@ -8,12 +8,12 @@ import {
   isRunning,
   runningCount
 } from '../container-state'
-import type { MenuTarget } from '../menus'
-import { filterTree, isTreeEmpty } from '../tree-filter'
+import type { MenuTarget, ViewOptions } from '../menus'
+import { applyView, filterTree, isTreeEmpty } from '../tree-filter'
 import ContainerLine from './ContainerLine.vue'
 import TreeIcon from './TreeIcon.vue'
 
-const props = defineProps<{ tree: DockerTree | null }>()
+const props = defineProps<{ tree: DockerTree | null; view: ViewOptions }>()
 const emit = defineEmits<{
   open: [container: TreeContainer]
   menu: [event: MouseEvent, target: MenuTarget]
@@ -26,7 +26,9 @@ const expanded = ref(new Set([ROOT]))
 const active = ref<string | null>(null)
 const search = ref('')
 const searching = computed(() => search.value.trim() !== '')
-const shown = computed(() => (props.tree ? filterTree(props.tree, search.value) : null))
+const shown = computed(() =>
+  props.tree ? filterTree(applyView(props.tree, props.view), search.value) : null
+)
 const noMatches = computed(() => searching.value && shown.value !== null && isTreeEmpty(shown.value))
 
 /** A search opens every group it found something in; collapsing returns when it is cleared. */

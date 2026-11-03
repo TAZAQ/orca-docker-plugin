@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { DockerContainer, DockerNetwork, DockerVolume } from '../src/worker/docker-api'
-import { cleanup, previewCleanup } from '../src/worker/docker-cleanup'
+import { cleanup, previewCleanup, previewSystemCleanup, systemCleanup } from '../src/worker/docker-cleanup'
 
 function container(
   Id: string,
@@ -107,5 +107,63 @@ describe('cleanup', () => {
       failed: [{ name: 'a', error: 'removal in progress' }]
     })
     expect(removed).toEqual(['container b'])
+  })
+})
+
+describe('system cleanup', () => {
+  function system() {
+    const calls: string[] = []
+    const containers = [container('old', 'exited'), container('live', 'running', withVolume('kept'))]
+    const api = {
+      listContainers: async () => containers,
+      listNetworks: async () => [{ Id: 'n-free', Name: 'free', Driver: 'bridge' }],
+      listVolumes: async () => [
+        { Name: 'kept', Driver: 'local' },
+        { Name: 'cache', Driver: 'local' }
+      ],
+      listImages: async () => [
+        { Id: 'sha256:none', RepoTags: null, Size: 5_000_000 },
+        { Id: 'sha256:tagged', RepoTags: ['app:1'], Size: 1 }
+      ],
+      buildCacheSize: async () => 2_000_000_000,
+      pruneBuildCache: vi.fn(async () => 1_500_000_000),
+      removeStoppedContainer: async (id: string) => {
+        calls.push(`container ${id}`)
+        containers.splice(containers.findIndex((item) => item.Id === id), 1)
+      },
+      removeNetwork: async (id: string) => void calls.push(`network ${id}`),
+      removeVolume: async (name: string) => void calls.push(`volume ${name}`),
+      removeUnusedImage: async (id: string) => void calls.push(`image ${id}`)
+    }
+    return { api, calls }
+  }
+
+  it('previews everything unused, dangling images only, and the build cache', async () => {
+    const { api } = system()
+    const preview = await previewSystemCleanup(api)
+    expect(preview.containers.map((item) => item.id)).toEqual(['old'])
+    expect(preview.networks.map((item) => item.id)).toEqual(['n-free'])
+    expect(preview.volumes.map((item) => item.id)).toEqual(['cache'])
+    expect(preview.images.map((item) => item.id)).toEqual(['sha256:none'])
+    expect(preview.buildCacheBytes).toBe(2_000_000_000)
+  })
+
+  it('removes containers first, then what was agreed, and the build cache when asked', async () => {
+    const { api, calls } = system()
+    const result = await systemCleanup(api, {
+      containers: ['old'],
+      networks: ['n-free'],
+      volumes: ['cache'],
+      images: ['sha256:none', 'sha256:tagged'],
+      buildCache: true
+    })
+    expect(calls).toEqual(['container old', 'network n-free', 'volume cache', 'image sha256:none'])
+    expect(result).toEqual({ removed: 4, skipped: 1, failed: [], buildCacheFreed: 1_500_000_000 })
+  })
+
+  it('keeps the build cache unless it was agreed to', async () => {
+    const { api } = system()
+    await systemCleanup(api, { containers: [], networks: [], volumes: [], images: [], buildCache: false })
+    expect(api.pruneBuildCache).not.toHaveBeenCalled()
   })
 })

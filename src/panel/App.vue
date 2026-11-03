@@ -31,7 +31,8 @@ import NetworkDialog from './components/NetworkDialog.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
 import { formatSize, isRunning } from './container-state'
-import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget } from './menus'
+import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget, type ViewOptions } from './menus'
+import { counted, IMAGE_REFERENCE, loadView, saveView, systemCleanupDialog, systemCleanupSummary } from './panel-dialogs'
 
 const props = defineProps<{ host: HostBridge }>()
 
@@ -50,6 +51,7 @@ const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
 const details = ref<Details | null>(null)
 const dialog = ref<DialogRequest | null>(null)
 const creatingNetwork = ref(false)
+const view = ref<ViewOptions>(loadView())
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 let contextSubscription: Subscription | undefined
@@ -87,11 +89,12 @@ async function runContainerAction(container: TreeContainer, action: ContainerAct
   }
 }
 
-function openShell(container: TreeContainer, shell = 'sh'): void {
+function openShell(container: TreeContainer, shell = 'sh', user?: string): void {
+  const as = user ? ` as ${user}` : ''
   void runInTerminal(
-    `${container.name} ${shell}`,
-    containerShellCommand(container.name, shell),
-    `${shell}:${container.id}`
+    `${container.name} ${shell}${as}`,
+    containerShellCommand(container.name, shell, user),
+    `${shell}${as}:${container.id}`
   )
 }
 
@@ -149,9 +152,6 @@ async function copy(label: string, text: string): Promise<void> {
 
 const PRUNE_LIST_MAX = 100
 
-function counted(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
-}
 
 function askToRemoveImage(image: TreeImage): void {
   const containers = (tree.value?.containers ?? []).filter((item) => item.imageId === image.id)
@@ -321,8 +321,63 @@ async function createVolume(name: string): Promise<void> {
   }
 }
 
+async function askToCleanEverything(): Promise<void> {
+  status.value = { kind: 'info', text: 'Looking for what is unused…' }
+  try {
+    const preview = await props.host.previewSystemCleanup()
+    const request = systemCleanupDialog(preview, (input) => void cleanEverything(input))
+    status.value = request ? null : { kind: 'info', text: 'Nothing to clean up' }
+    dialog.value = request
+  } catch (error) {
+    showError(error)
+  }
+}
+
+async function cleanEverything(input: Parameters<HostBridge['systemCleanup']>[0]): Promise<void> {
+  status.value = { kind: 'info', text: 'Cleaning up…' }
+  try {
+    const result = await props.host.systemCleanup(input)
+    status.value = { kind: result.failed.length > 0 ? 'error' : 'info', text: systemCleanupSummary(result) }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+function askToPull(): void {
+  dialog.value = {
+    title: 'Pull Image',
+    message: 'Runs docker pull in a new terminal, where you see its progress.',
+    confirmLabel: 'Pull',
+    input: {
+      placeholder: 'image name, e.g. postgres:16',
+      prefix: 'docker pull',
+      pattern: IMAGE_REFERENCE,
+      suggest: (text) => props.host.searchImages(text)
+    },
+    confirm: (name) => void runInTerminal(`pull ${name}`, imagePullCommand(name))
+  }
+}
+
+function openPort(port: number): void {
+  const url = `http://localhost:${port}`
+  props.host
+    .openExternal(url)
+    .then((opened) => {
+      status.value = opened ? { kind: 'info', text: `Opened ${url}` } : { kind: 'info', text: `Not opened: ${url}` }
+    })
+    .catch(showError)
+}
+
 const menuActions: MenuActions = {
   images: () => tree.value?.images ?? [],
+  view: () => view.value,
+  setView: (next) => {
+    view.value = next
+    saveView(next)
+  },
+  pullImagePrompt: askToPull,
+  systemCleanup: () => void askToCleanEverything(),
+  openPort,
   compose: (project, action) => {
     if (action === 'down') {
       dialog.value = {
@@ -460,6 +515,7 @@ onBeforeUnmount(() => {
       <h2 class="title">Services</h2>
       <ServicesTree
         :tree="tree"
+        :view="view"
         @open="openContainer"
         @menu="openMenu"
       />

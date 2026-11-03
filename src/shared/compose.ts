@@ -59,8 +59,9 @@ function render(args: string[]): string {
   return ['docker', 'compose', ...args].map(shellQuote).join(' ')
 }
 
-export function containerShellCommand(container: string, shell = 'sh'): string {
-  return ['docker', 'exec', '-it', container, shell].map(shellQuote).join(' ')
+export function containerShellCommand(container: string, shell = 'sh', user?: string): string {
+  const as = user ? ['-u', user] : []
+  return ['docker', 'exec', '-it', ...as, container, shell].map(shellQuote).join(' ')
 }
 
 /** The command itself is what the person typed, so it stays as they wrote it. */

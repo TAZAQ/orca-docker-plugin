@@ -20,6 +20,8 @@ export type MenuItem = {
   disabledReason?: string
   run?: () => void
   children?: MenuEntry[]
+  /** Set for an option that is on or off; drawn with a check mark. */
+  checked?: boolean
 }
 export type MenuEntry = MenuItem | 'separator'
 
@@ -39,8 +41,15 @@ export type MenuTarget =
   | { kind: 'volumes' }
   | { kind: 'image'; image: TreeImage }
 
+export type ViewOptions = { showStopped: boolean; showUntagged: boolean }
+
 export type MenuActions = {
   images(): TreeImage[]
+  view(): ViewOptions
+  setView(view: ViewOptions): void
+  pullImagePrompt(): void
+  systemCleanup(): void
+  openPort(port: number): void
   compose(project: TreeProject, action: ProjectAction): void
   composeInWorkspaceFolder(): void
   service(project: TreeProject, service: TreeService, action: ServiceAction): void
@@ -54,7 +63,7 @@ export type MenuActions = {
   copy(label: string, text: string): void
   attach(container: TreeContainer): void
   exec(container: TreeContainer): void
-  shell(container: TreeContainer, shell: string): void
+  shell(container: TreeContainer, shell: string, user?: string): void
   pullImage(name: string): void
   removeImage(image: TreeImage): void
   pruneImages(mode: PruneMode): void
@@ -168,14 +177,40 @@ function lifecycleItems(container: TreeContainer, actions: MenuActions): MenuEnt
 }
 
 function dockerMenu(actions: MenuActions): MenuEntry[] {
+  const view = actions.view()
   return [
+    { label: 'Pull Image…', icon: 'down', run: () => actions.pullImagePrompt() },
     {
       // A project with no containers yet is not in the tree, so this is how it gets started.
       label: 'Compose Up in Workspace Folder',
       icon: 'deploy',
       run: () => actions.composeInWorkspaceFolder()
+    },
+    { label: 'Clean Up', icon: 'remove', run: () => actions.systemCleanup() },
+    'separator',
+    {
+      label: 'Show Stopped Containers',
+      checked: view.showStopped,
+      run: () => actions.setView({ ...view, showStopped: !view.showStopped })
+    },
+    {
+      label: 'Show Untagged Images',
+      checked: view.showUntagged,
+      run: () => actions.setView({ ...view, showUntagged: !view.showUntagged })
     }
   ]
+}
+
+/** A published port as a browser link; 0.0.0.0 and :: mean this machine. */
+function portItems(container: TreeContainer, actions: MenuActions): MenuEntry[] {
+  const ports = container.ports.flatMap((port) => {
+    const host = Number(port.split('→')[0])
+    return Number.isInteger(host) && host > 0 ? [host] : []
+  })
+  return ports.map((port) => ({
+    label: `http://localhost:${port}`,
+    run: () => actions.openPort(port)
+  }))
 }
 
 function containerMenu(
@@ -189,6 +224,12 @@ function containerMenu(
     ...lifecycleItems(container, actions),
     { label: 'Image', children: imageItems(container, actions) },
     { label: 'Show Logs', icon: 'logs', run: () => actions.logs(container) },
+    (() => {
+      const ports = portItems(container, actions)
+      return ports.length > 0
+        ? ({ label: 'Open in Browser', icon: 'globe', children: ports } satisfies MenuItem)
+        : ({ label: 'Open in Browser', icon: 'globe', disabledReason: 'No port is published' } satisfies MenuItem)
+    })(),
     { label: 'Show Files', ...whenRunning, run: () => actions.files(container) },
     { label: 'Copy Container ID', icon: 'copy', run: () => actions.copy('Container ID', container.id) },
     { label: 'Copy Image ID', icon: 'copy', run: () => actions.copy('Image ID', container.imageId) },
@@ -200,10 +241,13 @@ function containerMenu(
       label: 'Create Terminal',
       icon: 'terminal',
       ...whenRunning,
-      children: ['sh', 'bash'].map((shell) => ({
-        label: shell,
-        run: () => actions.shell(container, shell)
-      }))
+      children: [
+        ...['sh', 'bash'].map((shell) => ({ label: shell, run: () => actions.shell(container, shell) })),
+        ...['sh', 'bash'].map((shell) => ({
+          label: `${shell} as root`,
+          run: () => actions.shell(container, shell, 'root')
+        }))
+      ]
     },
     ...(compose
       ? [

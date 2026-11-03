@@ -151,3 +151,28 @@ export type VolumeCreateInput = { name: string }
 
 /** What Docker accepts as a network or volume name. */
 export const DOCKER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
+
+export const IMAGE_SEARCH_REQUEST = 'docker.images.search'
+export const SYSTEM_CLEANUP_PREVIEW_REQUEST = 'docker.system.cleanupPreview'
+export const SYSTEM_CLEANUP_REQUEST = 'docker.system.cleanup'
+
+export type ImageSearchInput = { term: string }
+export type ImageSearchOutput = { names: string[] }
+
+/** Clean Up on the Docker root, as in JetBrains IDEs: everything unused, and the build cache. */
+export type SystemCleanupPreview = {
+  containers: CleanupItem[]
+  networks: CleanupItem[]
+  volumes: CleanupItem[]
+  /** Dangling images only: tagged ones are kept here, the Images group cleans those up. */
+  images: CleanupItem[]
+  buildCacheBytes: number
+}
+export type SystemCleanupInput = {
+  containers: string[]
+  networks: string[]
+  volumes: string[]
+  images: string[]
+  buildCache: boolean
+}
+export type SystemCleanupResult = CleanupResult & { buildCacheFreed: number }

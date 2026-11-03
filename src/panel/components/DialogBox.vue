@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 
 export type DialogRequest = {
   title: string
@@ -16,6 +16,8 @@ export type DialogRequest = {
     prefix?: string
     /** OK stays off until the value matches. */
     pattern?: RegExp
+    /** Offers completions for what has been typed so far. */
+    suggest?: (text: string) => Promise<string[]>
   }
   confirm(value: string): void
 }
@@ -23,7 +25,31 @@ export type DialogRequest = {
 const props = defineProps<{ request: DialogRequest }>()
 const emit = defineEmits<{ close: [] }>()
 
+const SUGGEST_DELAY_MS = 300
+
 const value = ref('')
+const suggestions = ref<string[]>([])
+let suggestTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(value, (text) => {
+  const suggest = props.request.input?.suggest
+  clearTimeout(suggestTimer)
+  if (!suggest || text.trim().length < 2) {
+    suggestions.value = []
+    return
+  }
+  suggestTimer = setTimeout(() => {
+    suggest(text.trim())
+      .then((found) => {
+        if (value.value === text) {
+          suggestions.value = found
+        }
+      })
+      .catch(() => (suggestions.value = []))
+  }, SUGGEST_DELAY_MS)
+})
+
+onBeforeUnmount(() => clearTimeout(suggestTimer))
 const cancel = useTemplateRef<HTMLButtonElement>('cancel')
 const field = useTemplateRef<HTMLInputElement>('field')
 
@@ -62,9 +88,13 @@ onMounted(() => (props.request.input ? field.value : cancel.value)?.focus())
           ref="field"
           v-model="value"
           :placeholder="request.input.placeholder"
+          :list="request.input.suggest ? 'dialog-suggestions' : undefined"
           data-test="dialog-input"
           @keydown.enter="confirm"
         />
+        <datalist v-if="request.input.suggest" id="dialog-suggestions" data-test="dialog-suggestions">
+          <option v-for="item in suggestions" :key="item" :value="item" />
+        </datalist>
       </label>
       <div class="box-buttons">
         <button ref="cancel" data-test="dialog-cancel" @click="emit('close')">

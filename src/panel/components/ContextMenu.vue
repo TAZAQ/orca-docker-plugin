@@ -94,9 +94,13 @@ onBeforeUnmount(() => {
           role="menuitem"
           :disabled="entry.disabledReason !== undefined"
           :title="entry.disabledReason"
+          :aria-checked="entry.checked"
           @click="choose(entry)"
         >
-          <span class="glyph"><ActionIcon v-if="entry.icon" :name="entry.icon" /></span>
+          <span class="glyph">
+            <ActionIcon v-if="entry.checked !== undefined" v-show="entry.checked" name="check" />
+            <ActionIcon v-else-if="entry.icon" :name="entry.icon" />
+          </span>
           <span class="label">{{ entry.label }}</span>
           <span v-if="entry.children" class="more" :class="{ open: openSubmenu === entry.label }" />
         </button>

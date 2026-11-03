@@ -6,6 +6,7 @@ import {
   CONTAINER_ACTIONS,
   DOCKER_NAME,
   FILES_REQUEST,
+  IMAGE_SEARCH_REQUEST,
   IMAGE_PRUNE_PREVIEW_REQUEST,
   IMAGE_PRUNE_REQUEST,
   IMAGE_REMOVE_REQUEST,
@@ -18,6 +19,8 @@ import {
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
   PRUNE_MODES,
+  SYSTEM_CLEANUP_PREVIEW_REQUEST,
+  SYSTEM_CLEANUP_REQUEST,
   VOLUME_CREATE_REQUEST,
   TREE_REQUEST,
   type CleanupInput,
@@ -42,6 +45,9 @@ import {
   type PruneMode,
   type PrunePreview,
   type PruneResult,
+  type SystemCleanupInput,
+  type SystemCleanupPreview,
+  type SystemCleanupResult,
   type VolumeCreateInput,
   type OpenTerminalInput
 } from '../shared/protocol'
@@ -66,6 +72,9 @@ type PanelRequestsDeps = {
   cleanup(kind: CleanupKind, ids: string[]): Promise<CleanupResult>
   createNetwork(input: NetworkCreateInput): Promise<void>
   createVolume(name: string): Promise<void>
+  searchImages(term: string): Promise<string[]>
+  previewSystemCleanup(): Promise<SystemCleanupPreview>
+  systemCleanup(input: SystemCleanupInput): Promise<SystemCleanupResult>
   logs: {
     start(id: string): string
     renew(streamId: string): boolean
@@ -122,6 +131,21 @@ function isCleanupInput(input: unknown): input is CleanupInput {
   }
   const pattern = value.kind === 'volumes' ? DOCKER_NAME : CONTAINER_ID
   return value.ids.every((id) => typeof id === 'string' && pattern.test(id))
+}
+
+function isIdList(value: unknown, pattern: RegExp): value is string[] {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string' && pattern.test(id))
+}
+
+function isSystemCleanupInput(input: unknown): input is SystemCleanupInput {
+  const value = input as Partial<SystemCleanupInput> | null
+  return (
+    isIdList(value?.containers, CONTAINER_ID) &&
+    isIdList(value.networks, CONTAINER_ID) &&
+    isIdList(value.volumes, DOCKER_NAME) &&
+    isIdList(value.images, IMAGE_ID) &&
+    typeof value.buildCache === 'boolean'
+  )
 }
 
 function isNetworkCreateInput(input: unknown): input is NetworkCreateInput {
@@ -236,6 +260,24 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
       throw invalidParams(CLEANUP_REQUEST)
     }
     return deps.cleanup(input.kind, input.ids)
+  })
+
+  orca.panels.handle(IMAGE_SEARCH_REQUEST, async (input) => {
+    const term = (input as { term?: unknown } | null)?.term
+    if (typeof term !== 'string' || term.trim().length < 2 || term.length > 100) {
+      throw invalidParams(IMAGE_SEARCH_REQUEST)
+    }
+    return { names: await deps.searchImages(term.trim()) }
+  })
+
+  orca.panels.handle(SYSTEM_CLEANUP_PREVIEW_REQUEST, () => deps.previewSystemCleanup())
+
+  orca.panels.handle(SYSTEM_CLEANUP_REQUEST, (input) => {
+    if (!isSystemCleanupInput(input)) {
+      throw invalidParams(SYSTEM_CLEANUP_REQUEST)
+    }
+    const { containers, networks, volumes, images, buildCache } = input
+    return deps.systemCleanup({ containers, networks, volumes, images, buildCache })
   })
 
   orca.panels.handle(NETWORK_CREATE_REQUEST, async (input) => {

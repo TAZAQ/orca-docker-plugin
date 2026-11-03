@@ -180,6 +180,56 @@ describe('DockerApi', () => {
     })
   })
 
+  it('sizes and prunes the build cache, counting only what pruning frees', async () => {
+    const seen: string[] = []
+    const api = await fakeDaemon((url, res, method) => {
+      seen.push(`${method} ${url}`)
+      res.end(
+        JSON.stringify(
+          url.startsWith('/system/df')
+            ? {
+                BuildCache: [
+                  { Size: 10, InUse: false, Shared: false },
+                  { Size: 5, InUse: true, Shared: false },
+                  { Size: 7, InUse: false, Shared: false },
+                  // Shared with an image: stays as long as the image does, as docker system df counts it.
+                  { Size: 100, InUse: false, Shared: true }
+                ]
+              }
+            : { SpaceReclaimed: 17 }
+        )
+      )
+    })
+    await expect(api.buildCacheSize()).resolves.toBe(17)
+    await expect(api.pruneBuildCache()).resolves.toBe(17)
+    expect(seen).toEqual(['GET /system/df?type=build-cache', 'POST /build/prune?all=true'])
+  })
+
+  it('searches images with official ones first', async () => {
+    let seen = ''
+    const api = await fakeDaemon((url, res) => {
+      seen = url
+      res.end(
+        JSON.stringify([
+          { name: 'someone/postgres', is_official: false, star_count: 50 },
+          { name: 'postgres', is_official: true, star_count: 10 }
+        ])
+      )
+    })
+    await expect(api.searchImages('post gres')).resolves.toEqual(['postgres', 'someone/postgres'])
+    expect(seen).toBe('/images/search?term=post%20gres&limit=10')
+  })
+
+  it('removes an unused image without force', async () => {
+    let seen = ''
+    const api = await fakeDaemon((url, res, method) => {
+      seen = `${method} ${url}`
+      res.end('[]')
+    })
+    await api.removeUnusedImage('sha256:abc')
+    expect(seen).toBe('DELETE /images/sha256%3Aabc')
+  })
+
   it('reads what a command printed in a container', async () => {
     const seen: string[] = []
     const api = await fakeDaemon((url, res, method) => {

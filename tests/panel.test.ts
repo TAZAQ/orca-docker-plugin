@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type CleanupPreview, type CleanupResult, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
+import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type CleanupPreview, type CleanupResult, type SystemCleanupPreview, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -52,6 +52,18 @@ function fakeHost(context: WorkspaceContext) {
     cleanup: vi.fn(async (): Promise<CleanupResult> => ({ removed: 2, skipped: 0, failed: [] })),
     createNetwork: vi.fn(async () => undefined),
     createVolume: vi.fn(async () => undefined),
+    searchImages: vi.fn(async (term: string) => [`${term}`, `${term}-alpine`]),
+    previewSystemCleanup: vi.fn(
+      async (): Promise<SystemCleanupPreview> => ({
+        containers: [],
+        networks: [],
+        volumes: [],
+        images: [],
+        buildCacheBytes: 0
+      })
+    ),
+    systemCleanup: vi.fn(async () => ({ removed: 3, skipped: 0, failed: [], buildCacheFreed: 2_000_000 })),
+    openExternal: vi.fn(async () => true),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -453,6 +465,132 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="status"]').text()).toBe('This node is not a swarm manager.')
   })
 
+  it('pulls an image by name in a terminal, suggesting names as you type', async () => {
+    vi.useFakeTimers()
+    const { host, sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Pull Image…').trigger('click')
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('docker pull')
+    await wrapper.get('[data-test="dialog-input"]').setValue('postg')
+    await vi.advanceTimersByTimeAsync(400)
+    vi.useRealTimers()
+    await flushPromises()
+    expect(host.searchImages).toHaveBeenCalledWith('postg')
+    expect(wrapper.findAll('[data-test="dialog-suggestions"] option').map((item) => item.attributes('value'))).toEqual([
+      'postg',
+      'postg-alpine'
+    ])
+    await wrapper.get('[data-test="dialog-input"]').setValue('postgres:16')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({ title: 'pull postgres:16', command: 'docker pull postgres:16' })
+  })
+
+  it('refuses to pull a name with spaces or shell characters', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Pull Image…').trigger('click')
+    await wrapper.get('[data-test="dialog-input"]').setValue('postgres; rm -rf /')
+    expect(wrapper.get('[data-test="dialog-confirm"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('cleans up everything from the Docker root after listing it, build cache included', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewSystemCleanup = vi.fn(async () => ({
+      containers: [{ id: 'c'.repeat(12), name: 'old', detail: 'Exited (0)' }],
+      networks: [],
+      volumes: [{ id: 'cache', name: 'cache', detail: 'local' }],
+      images: [],
+      buildCacheBytes: 2_000_000_000
+    }))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
+    await flushPromises()
+    const message = wrapper.get('[data-test="dialog-message"]').text()
+    expect(message).toContain('1 container, 1 volume, 2.0 GB of build cache')
+    expect(message).toContain('Volume data is deleted for good')
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('volume: cache (local)')
+    expect(host.systemCleanup).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.systemCleanup).toHaveBeenCalledWith({
+      containers: ['c'.repeat(12)],
+      networks: [],
+      volumes: ['cache'],
+      images: [],
+      buildCache: true
+    })
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Removed 3 items; freed 2 MB of build cache')
+  })
+
+  it('says there is nothing to clean up anywhere', async () => {
+    const { wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="dialog"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Nothing to clean up')
+  })
+
+  it('opens a shell as root', async () => {
+    const { sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Terminal').trigger('click')
+    await menuItem(wrapper, 'bash as root').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({
+      title: 'shop-web-1 bash as root',
+      command: 'docker exec -it -u root shop-web-1 bash',
+      reuseKey: 'bash as root:abc'
+    })
+  })
+
+  it('opens a published port in the browser', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Open in Browser').trigger('click')
+    await menuItem(wrapper, 'http://localhost:8080').trigger('click')
+    await flushPromises()
+    expect(host.openExternal).toHaveBeenCalledWith('http://localhost:8080')
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Opened http://localhost:8080')
+  })
+
+  it('offers no browser for a container without published ports', async () => {
+    const { wrapper } = await mountWithProject()
+    treeListeners.at(-1)!({
+      ...tree,
+      projects: [{ ...tree.projects[0]!, services: [{ name: 'web', containers: [{ ...container, ports: [] }] }] }]
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Open in Browser').attributes('disabled')).toBeDefined()
+  })
+
+  it('hides stopped containers and untagged images from the Docker root menu, and remembers it', async () => {
+    localStorage.clear()
+    const { wrapper } = await mountWithProject()
+    const stopped = { ...container, id: 'old', name: 'old-1', state: 'exited', status: 'Exited (0)' }
+    treeListeners.at(-1)!({
+      ...tree,
+      containers: [container, stopped],
+      images: [...tree.images, { id: 'sha256:2', name: 'abc123', tags: [], size: 1 }]
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="group-containers"]').trigger('click')
+    await wrapper.get('[data-test="group-images"]').trigger('click')
+    expect(wrapper.find('[data-test="container-row-old-1"]').exists()).toBe(true)
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Show Stopped Containers').attributes('aria-checked')).toBe('true')
+    await menuItem(wrapper, 'Show Stopped Containers').trigger('click')
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Show Untagged Images').trigger('click')
+    expect(wrapper.find('[data-test="container-row-old-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="image-row-abc123"]').exists()).toBe(false)
+    expect(JSON.parse(localStorage.getItem('docker.view')!)).toEqual({ showStopped: false, showUntagged: false })
+    localStorage.clear()
+  })
+
   it('says there is nothing to clean instead of asking', async () => {
     const { wrapper } = await mountWithProject()
     await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
@@ -578,6 +716,7 @@ describe('panel', () => {
       'Stop Container',
       'Image',
       'Show Logs',
+      'Open in Browser',
       'Show Files',
       'Copy Container ID',
       'Copy Image ID',

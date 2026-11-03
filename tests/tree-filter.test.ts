@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterTree, isTreeEmpty } from '../src/panel/tree-filter'
+import { applyView, filterTree, isTreeEmpty } from '../src/panel/tree-filter'
 import { emptyTree, type DockerTree, type TreeContainer } from '../src/shared/protocol'
 
 function container(name: string, overrides: Partial<TreeContainer> = {}): TreeContainer {
@@ -71,5 +71,29 @@ describe('filterTree', () => {
   it('leaves nothing when nothing matches', () => {
     expect(isTreeEmpty(filterTree(tree, 'zzz'))).toBe(true)
     expect(isTreeEmpty(filterTree(tree, 'nginx'))).toBe(false)
+  })
+})
+
+describe('applyView', () => {
+  const stopped = container('old', { state: 'exited' })
+  const withHidden: DockerTree = {
+    ...tree,
+    containers: [...tree.containers, stopped],
+    images: [...tree.images, { id: 'i2', name: 'abc123', tags: [], size: 1 }]
+  }
+
+  it('shows everything by default', () => {
+    expect(applyView(withHidden, { showStopped: true, showUntagged: true })).toEqual(withHidden)
+  })
+
+  it('hides stopped containers but keeps Compose projects whole, so they can still be started', () => {
+    const view = applyView(withHidden, { showStopped: false, showUntagged: true })
+    expect(view.containers.map((item) => item.name)).not.toContain('old')
+    expect(view.projects).toBe(withHidden.projects)
+  })
+
+  it('hides untagged images', () => {
+    const view = applyView(withHidden, { showStopped: true, showUntagged: false })
+    expect(view.images.map((image) => image.name)).toEqual(['nginx:1'])
   })
 })
