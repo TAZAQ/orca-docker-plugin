@@ -72,6 +72,8 @@ export type MenuActions = {
   shell(container: TreeContainer, shell: string, user?: string): void
   pullImage(name: string): void
   removeImage(image: TreeImage): void
+  createContainer(image: TreeImage): void
+  pushImage(image: TreeImage): void
   pruneImages(mode: PruneMode): void
   cleanup(kind: CleanupKind): void
   createNetwork(): void
@@ -136,6 +138,10 @@ function serviceMenu(project: TreeProject, service: TreeService, actions: MenuAc
 function imageMenu(image: TreeImage, actions: MenuActions): MenuEntry[] {
   const [tag] = image.tags
   return [
+    { label: 'Create Container…', icon: 'add', run: () => actions.createContainer(image) },
+    tag
+      ? { label: 'Push Image…', icon: 'deploy', run: () => actions.pushImage(image) }
+      : { label: 'Push Image…', icon: 'deploy', disabledReason: 'Tag the image first' },
     { label: 'Inspect', icon: 'search', run: () => actions.inspectImage(image.name, image.id) },
     { label: 'Copy Image ID', icon: 'copy', run: () => actions.copy('Image ID', image.id) },
     { label: 'Copy Image Name', icon: 'copy', run: () => actions.copy('Image name', image.name) },

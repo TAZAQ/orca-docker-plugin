@@ -16,6 +16,8 @@ export type DialogRequest = {
     prefix?: string
     /** OK stays off until the value matches. */
     pattern?: RegExp
+    /** What the field starts with. */
+    value?: string
     /** Offers completions for what has been typed so far. */
     suggest?: (text: string) => Promise<string[]>
   }
@@ -27,7 +29,7 @@ const emit = defineEmits<{ close: [] }>()
 
 const SUGGEST_DELAY_MS = 300
 
-const value = ref('')
+const value = ref(props.request.input?.value ?? '')
 const suggestions = ref<string[]>([])
 let suggestTimer: ReturnType<typeof setTimeout> | undefined
 

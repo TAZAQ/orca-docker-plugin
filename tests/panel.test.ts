@@ -291,9 +291,9 @@ describe('panel', () => {
 
 
   async function mountWithImages() {
-    const { host, wrapper } = await mountWithProject()
+    const { host, sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="group-images"]').trigger('click')
-    return { host, wrapper }
+    return { host, sent, wrapper }
   }
 
   it('warns that removing an image removes its containers, and names them', async () => {
@@ -824,6 +824,61 @@ describe('panel', () => {
       command:
         'docker compose -p shop -f /srv/shop/compose.yaml --profile debug --profile tools --env-file .env.local ' +
         'up -d --build --force-recreate --remove-orphans web'
+    })
+  })
+
+  it('creates a container from an image with the run options, showing the command', async () => {
+    const { sent, wrapper } = await mountWithImages()
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Container…').trigger('click')
+    const command = () => wrapper.get('[data-test="run-command"]').text()
+    expect(command()).toBe('docker run -d nginx:1')
+    await wrapper.get('[data-test="run-name"]').setValue('web')
+    await wrapper.get('[data-test="run-ports"]').setValue('8080:80\n127.0.0.1:8443:443/tcp')
+    await wrapper.get('[data-test="run-volumes"]').setValue('site:/usr/share/nginx/html:ro')
+    await wrapper.get('[data-test="run-env"]').setValue('TZ=Europe Moscow')
+    await wrapper.get('[data-test="run-options"]').setValue('--network shop_default')
+    await wrapper.get('[data-test="run-autoRemove"]').trigger('click')
+    await wrapper.get('[data-test="run-pull"]').setValue('always')
+    await wrapper.get('[data-test="run-cmd"]').setValue('nginx -g "daemon off;"')
+    await wrapper.get('[data-test="run-ok"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({
+      title: 'run nginx:1',
+      command:
+        "docker run -d --rm --name web -p 8080:80 -p 127.0.0.1:8443:443/tcp -v site:/usr/share/nginx/html:ro -e 'TZ=Europe Moscow' --pull=always --network shop_default nginx:1 nginx -g \"daemon off;\""
+    })
+  })
+
+  it('refuses a malformed port, volume, variable or name before running', async () => {
+    const { wrapper } = await mountWithImages()
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Container…').trigger('click')
+    const ok = () => wrapper.get('[data-test="run-ok"]').attributes('disabled')
+    for (const [field, value] of [
+      ['run-ports', '80:80; rm -rf /'],
+      ['run-volumes', 'just-a-name'],
+      ['run-env', '1BAD=x'],
+      ['run-name', 'bad name']
+    ] as const) {
+      await wrapper.get(`[data-test="${field}"]`).setValue(value)
+      expect(ok()).toBeDefined()
+      await wrapper.get(`[data-test="${field}"]`).setValue('')
+    }
+    expect(ok()).toBeUndefined()
+  })
+
+  it('pushes an image, tagging it first under a new name', async () => {
+    const { sent, wrapper } = await mountWithImages()
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Push Image…').trigger('click')
+    expect((wrapper.get('[data-test="dialog-input"]').element as HTMLInputElement).value).toBe('nginx:1')
+    await wrapper.get('[data-test="dialog-input"]').setValue('ghcr.io/acme/nginx:1')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(sent[0]).toEqual({
+      title: 'push ghcr.io/acme/nginx:1',
+      command: 'docker tag nginx:1 ghcr.io/acme/nginx:1 && docker push ghcr.io/acme/nginx:1'
     })
   })
 

@@ -27,7 +27,9 @@ import {
 import type { HostBridge, Subscription, WorkspaceContext } from './bridge'
 import ActionIcon from './components/ActionIcon.vue'
 import { copyText } from './clipboard'
+import { dockerPushCommand } from '../shared/docker-run'
 import ComposeDialog from './components/ComposeDialog.vue'
+import RunDialog from './components/RunDialog.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
 import DashboardView from './components/DashboardView.vue'
@@ -56,6 +58,7 @@ const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
 const details = ref<Details | null>(null)
 const dialog = ref<DialogRequest | null>(null)
 const creatingNetwork = ref(false)
+const runImage = ref<string | null>(null)
 const composeDialog = ref<{ project: TreeProject; mode: 'deploy' | 'down' } | null>(null)
 const view = ref<ViewOptions>(loadView())
 const dashboard = ref<{ data: Dashboard | null; error: string | null } | null>(null)
@@ -484,6 +487,17 @@ const menuActions: MenuActions = {
   shell: openShell,
   pullImage: (name) => void runInTerminal(`pull ${name}`, imagePullCommand(name)),
   removeImage: askToRemoveImage,
+  createContainer: (image) => (runImage.value = image.tags[0] ?? image.id),
+  pushImage: (image) => {
+    const source = image.tags[0] ?? image.id
+    dialog.value = {
+      title: `Push ${source}`,
+      message: 'A new name is tagged first. Log in to the registry beforehand (docker login).',
+      confirmLabel: 'Push',
+      input: { placeholder: 'registry/repository:tag', prefix: 'docker push', pattern: IMAGE_REFERENCE, value: source },
+      confirm: (target) => void runInTerminal(`push ${target}`, dockerPushCommand(source, target))
+    }
+  },
   pruneImages: (mode) => void askToPrune(mode),
   cleanup: (kind) => void askToClean(kind),
   createNetwork: () => (creatingNetwork.value = true),
@@ -606,6 +620,12 @@ onBeforeUnmount(() => {
       :mode="composeDialog.mode"
       @run="(command) => void runInTerminal(`${composeDialog?.project.name} ${composeDialog?.mode}`, command)"
       @close="composeDialog = null"
+    />
+    <RunDialog
+      v-if="runImage"
+      :image="runImage"
+      @run="(command) => void runInTerminal(`run ${runImage}`, command)"
+      @close="runImage = null"
     />
     <NetworkDialog
       v-if="creatingNetwork"
