@@ -1,9 +1,9 @@
 import { homedir } from 'node:os'
-import { LOGS_EVENT, TREE_CHANGED_EVENT } from '../shared/protocol'
+import { emptyTree, LOGS_EVENT, TREE_CHANGED_EVENT, type TreeContext } from '../shared/protocol'
 import { formatStatus, summarizeProjects } from './compose-status'
 import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
-import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
+import { describeEndpoint, listContexts, resolveDockerEndpoint } from './docker-endpoint'
 import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
 import { buildDashboard } from './docker-dashboard'
 import { cleanup, previewCleanup, previewSystemCleanup, systemCleanup } from './docker-cleanup'
@@ -27,13 +27,21 @@ export type OrcaApi = {
 }
 
 const NOTIFICATIONS_KEY = 'crashNotifications'
+/** The context chosen in the panel; absent means the docker CLI's current one. */
+const CONTEXT_KEY = 'dockerContext'
 /** Orca reaps a worker after 5 idle minutes; any host call counts as activity. */
 export const KEEPALIVE_MS = 2 * 60_000
 
 let stopWorker: (() => Promise<void>) | null = null
 
 export default async function activate(orca: OrcaApi): Promise<void> {
-  const api = async (): Promise<DockerApi> => new DockerApi(await resolveDockerEndpoint(homedir()))
+  let contextOverride: string | null = null
+  const api = async (): Promise<DockerApi> =>
+    new DockerApi(await resolveDockerEndpoint(homedir(), process.platform, contextOverride))
+  const treeContext = async (): Promise<TreeContext> => {
+    const { names, cli } = await listContexts(homedir())
+    return { active: contextOverride ?? cli, cli, names }
+  }
   const notifier = new CrashNotifier()
   let keepalive: ReturnType<typeof setInterval> | undefined
   let notifying = false
@@ -48,14 +56,20 @@ export default async function activate(orca: OrcaApi): Promise<void> {
 
   const tree = new TreePublisher({
     load: async () => {
-      const docker = await api()
-      const [containers, images, networks, volumes] = await Promise.all([
-        docker.listContainers(),
-        docker.listImages(),
-        docker.listNetworks(),
-        docker.listVolumes()
-      ])
-      return buildTree(containers, { images, networks, volumes })
+      // The context comes along even when the daemon fails, so the panel can switch away from it.
+      const context = await treeContext()
+      try {
+        const docker = await api()
+        const [containers, images, networks, volumes] = await Promise.all([
+          docker.listContainers(),
+          docker.listImages(),
+          docker.listNetworks(),
+          docker.listVolumes()
+        ])
+        return { ...buildTree(containers, { images, networks, volumes }), context }
+      } catch (error) {
+        return { ...emptyTree(error instanceof Error ? error.message : String(error)), context }
+      }
     },
     post: (value) => orca.panels.post(TREE_CHANGED_EVENT, value)
   })
@@ -148,7 +162,19 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     createVolume: async (name) => (await api()).createVolume(name),
     searchImages: async (term) => (await api()).searchImages(term),
     previewSystemCleanup: async () => previewSystemCleanup(await api()),
-    systemCleanup: async (input) => systemCleanup(await api(), input)
+    systemCleanup: async (input) => systemCleanup(await api(), input),
+    useContext: async (name) => {
+      const { names, cli } = await listContexts(homedir())
+      if (name !== null && !names.includes(name)) {
+        throw Object.assign(new Error(`There is no Docker context ${name}`), { code: 'invalid_params' })
+      }
+      contextOverride = name === cli ? null : name
+      await orca.host.call('storage.set', { key: CONTEXT_KEY, value: contextOverride })
+      logs.stop()
+      await watcher.stop()
+      watcher.start()
+      tree.schedule()
+    }
   })
 
   // Subscribed only so Orca starts the worker early; the watcher is what does the work.
@@ -162,6 +188,8 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     await watcher.stop()
   }
 
+  const stored = (await orca.host.call('storage.get', { key: CONTEXT_KEY })) as { value: unknown } | null
+  contextOverride = typeof stored?.value === 'string' ? stored.value : null
   watcher.start()
   setNotifying(await notificationsEnabled())
   orca.log('docker plugin active')

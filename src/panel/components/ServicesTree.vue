@@ -121,6 +121,9 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
           <span class="chevron" :class="{ open: isOpen(ROOT) }" />
           <TreeIcon name="docker" :active="!tree.error" />
           <span class="name">Docker</span>
+          <span v-if="tree.context && tree.context.active !== 'default'" class="meta" data-test="docker-context">
+            {{ tree.context.active }}
+          </span>
         </button>
         <p v-if="tree.error" class="note error" data-test="tree-error">{{ tree.error }}</p>
         <ul v-if="isOpen(ROOT)" class="tree nested">

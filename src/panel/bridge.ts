@@ -2,6 +2,7 @@ import {
   CLEANUP_PREVIEW_REQUEST,
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
+  CONTEXT_USE_REQUEST,
   DASHBOARD_REQUEST,
   FILES_REQUEST,
   IMAGE_SEARCH_REQUEST,
@@ -79,6 +80,7 @@ export type HostBridge = {
   systemCleanup(input: SystemCleanupInput): Promise<SystemCleanupResult>
   /** False when this Orca cannot open links, or the person cancelled. */
   openExternal(url: string): Promise<boolean>
+  useContext(name: string | null): Promise<void>
   startLogs(id: string): Promise<string>
   renewLogs(streamId: string): Promise<boolean>
   stopLogs(streamId: string): Promise<void>
@@ -190,6 +192,9 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
       return (await orca.plugin.request(SYSTEM_CLEANUP_REQUEST, input, {
         timeoutMs: IMAGE_REQUEST_TIMEOUT_MS
       })) as SystemCleanupResult
+    },
+    async useContext(name) {
+      await orca.plugin.request(CONTEXT_USE_REQUEST, { name })
     },
     async openExternal(url) {
       if (!orca.shell) {

@@ -4,6 +4,7 @@ import {
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
   CONTAINER_ACTIONS,
+  CONTEXT_USE_REQUEST,
   DASHBOARD_REQUEST,
   DOCKER_NAME,
   FILES_REQUEST,
@@ -82,6 +83,7 @@ type PanelRequestsDeps = {
   searchImages(term: string): Promise<string[]>
   previewSystemCleanup(): Promise<SystemCleanupPreview>
   systemCleanup(input: SystemCleanupInput): Promise<SystemCleanupResult>
+  useContext(name: string | null): Promise<void>
   logs: {
     start(id: string): string
     renew(streamId: string): boolean
@@ -319,6 +321,15 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
     }
     const { containers, networks, volumes, images, buildCache } = input
     return deps.systemCleanup({ containers, networks, volumes, images, buildCache })
+  })
+
+  orca.panels.handle(CONTEXT_USE_REQUEST, async (input) => {
+    const name = (input as { name?: unknown } | null)?.name
+    if (name !== null && (typeof name !== 'string' || name.length > 200)) {
+      throw invalidParams(CONTEXT_USE_REQUEST)
+    }
+    await deps.useContext(name)
+    return null
   })
 
   orca.panels.handle(NETWORK_CREATE_REQUEST, async (input) => {

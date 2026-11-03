@@ -2,6 +2,7 @@ import type { ProjectAction, ServiceAction } from '../shared/compose'
 import type {
   CleanupKind,
   ContainerAction,
+  TreeContext,
   PruneMode,
   TreeContainer,
   TreeImage,
@@ -50,6 +51,8 @@ export type ViewOptions = { showStopped: boolean; showUntagged: boolean }
 export type MenuActions = {
   images(): TreeImage[]
   view(): ViewOptions
+  context(): TreeContext | undefined
+  useContext(name: string): void
   setView(view: ViewOptions): void
   pullImagePrompt(): void
   systemCleanup(): void
@@ -195,9 +198,27 @@ function lifecycleItems(container: TreeContainer, actions: MenuActions): MenuEnt
   ]
 }
 
+function contextItems(actions: MenuActions): MenuEntry[] {
+  const context = actions.context()
+  if (!context) {
+    return []
+  }
+  return [
+    {
+      label: 'Context',
+      children: context.names.map((name) => ({
+        label: name === context.cli ? `${name} (docker CLI)` : name,
+        checked: name === context.active,
+        run: () => actions.useContext(name)
+      }))
+    }
+  ]
+}
+
 function dockerMenu(actions: MenuActions): MenuEntry[] {
   const view = actions.view()
   return [
+    ...contextItems(actions),
     { label: 'Pull Image…', icon: 'down', run: () => actions.pullImagePrompt() },
     {
       // A project with no containers yet is not in the tree, so this is how it gets started.

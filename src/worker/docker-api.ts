@@ -1,4 +1,5 @@
 import { request, type IncomingMessage, type RequestOptions } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type {
   ContainerAction,
   NetworkCreateInput,
@@ -63,17 +64,28 @@ export class DockerApi {
     method = 'GET',
     body?: unknown
   ): Promise<IncomingMessage> {
+    const endpoint = this.endpoint
     const target: RequestOptions =
-      this.endpoint.kind === 'socket'
-        ? { socketPath: this.endpoint.socketPath }
-        : { host: this.endpoint.host, port: this.endpoint.port }
+      endpoint.kind === 'socket'
+        ? { socketPath: endpoint.socketPath }
+        : { host: endpoint.host, port: endpoint.port }
+    const tls = endpoint.kind === 'tcp' ? endpoint.tls : undefined
+    const send = tls ? httpsRequest : request
     return new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : JSON.stringify(body)
+      // TLS checks the server certificate against this name, so tcp needs the real one.
       const headers = {
-        Host: 'docker',
+        Host: endpoint.kind === 'socket' ? 'docker' : `${endpoint.host}:${endpoint.port}`,
         ...(payload === undefined ? {} : { 'Content-Type': 'application/json' })
       }
-      const req = request({ ...target, path, method, signal, headers })
+      const req = send({
+        ...target,
+        ...(tls ? { ca: tls.ca, cert: tls.cert, key: tls.key, rejectUnauthorized: tls.verify } : {}),
+        path,
+        method,
+        signal,
+        headers
+      })
       req.on('response', (res) => {
         if (res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res)

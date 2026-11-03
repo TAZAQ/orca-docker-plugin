@@ -51,7 +51,11 @@ export type DockerTree = {
   volumes: TreeVolume[]
   /** Set when the daemon could not be read. */
   error?: string
+  /** Which docker CLI context the tree comes from, and which others there are. */
+  context?: TreeContext
 }
+
+export type TreeContext = { active: string; cli: string; names: string[] }
 
 export function emptyTree(error?: string): DockerTree {
   return {
@@ -190,3 +194,7 @@ export type Dashboard = {
 }
 
 export type RemoveInput = { kind: 'network' | 'volume'; id: string }
+
+export const CONTEXT_USE_REQUEST = 'docker.context.use'
+/** null follows the docker CLI's current context again. */
+export type ContextUseInput = { name: string | null }

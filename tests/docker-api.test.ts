@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
+import type { AddressInfo } from 'node:net'
+import type { TLSSocket } from 'node:tls'
 import { createServer, type Server, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,6 +28,47 @@ async function fakeDaemon(
 }
 
 const dieEvent = { Type: 'container', Action: 'die', Actor: { ID: 'c1', Attributes: { exitCode: '1' } }, time: 1 }
+
+describe('DockerApi over TLS', () => {
+  const fixture = (name: string) => readFileSync(new URL(`./fixtures/tls/${name}`, import.meta.url))
+  let tlsServer: HttpsServer | null = null
+
+  afterEach(async () => {
+    tlsServer?.closeAllConnections()
+    await new Promise((resolve) => tlsServer?.close(resolve) ?? resolve(undefined))
+    tlsServer = null
+  })
+
+  async function tlsDaemon(): Promise<number> {
+    tlsServer = createHttpsServer(
+      { key: fixture('server-key.pem'), cert: fixture('server.pem'), ca: fixture('ca.pem'), requestCert: true },
+      (req, res) => {
+        const authorized = (req.socket as TLSSocket).authorized
+        res.statusCode = authorized ? 200 : 403
+        res.end(JSON.stringify(authorized ? [] : { message: 'client certificate required' }))
+      }
+    )
+    await new Promise<void>((resolve) => tlsServer!.listen(0, '127.0.0.1', resolve))
+    return (tlsServer.address() as AddressInfo).port
+  }
+
+  it('talks to a daemon that needs a client certificate', async () => {
+    const port = await tlsDaemon()
+    const api = new DockerApi({
+      kind: 'tcp',
+      host: '127.0.0.1',
+      port,
+      tls: { ca: fixture('ca.pem'), cert: fixture('cert.pem'), key: fixture('key.pem'), verify: true }
+    })
+    await expect(api.listContainers()).resolves.toEqual([])
+  })
+
+  it('refuses a daemon whose certificate its CA did not sign', async () => {
+    const port = await tlsDaemon()
+    const api = new DockerApi({ kind: 'tcp', host: '127.0.0.1', port, tls: { verify: true } })
+    await expect(api.listContainers()).rejects.toThrow(/certificate/)
+  })
+})
 
 describe('DockerApi', () => {
   it('lists containers over the unix socket', async () => {

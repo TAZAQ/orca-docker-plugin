@@ -415,6 +415,17 @@ function openPort(port: number): void {
 const menuActions: MenuActions = {
   images: () => tree.value?.images ?? [],
   view: () => view.value,
+  context: () => tree.value?.context,
+  useContext: (name) => {
+    status.value = { kind: 'info', text: `Switching to Docker context ${name}…` }
+    props.host
+      .useContext(name === tree.value?.context?.cli ? null : name)
+      .then(() => {
+        status.value = { kind: 'info', text: `Docker context: ${name}` }
+        return refreshTree()
+      })
+      .catch(showError)
+  },
   setView: (next) => {
     view.value = next
     saveView(next)

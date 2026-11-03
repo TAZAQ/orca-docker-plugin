@@ -75,6 +75,7 @@ function fakeHost(context: WorkspaceContext) {
       })
     ),
     remove: vi.fn(async () => undefined),
+    useContext: vi.fn(async () => undefined),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -672,6 +673,32 @@ describe('panel', () => {
     await menuItem(wrapper, 'Inspect').trigger('click')
     await flushPromises()
     expect(host.inspect).toHaveBeenCalledWith('network', 'n1')
+  })
+
+  it('switches the Docker context from the root, naming the CLI’s one', async () => {
+    const { host, wrapper } = await mountWithProject()
+    treeListeners.at(-1)!({ ...tree, context: { active: 'default', cli: 'default', names: ['default', 'colima'] } })
+    await flushPromises()
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Context').trigger('click')
+    expect(menuItem(wrapper, 'default (docker CLI)').attributes('aria-checked')).toBe('true')
+    expect(menuItem(wrapper, 'colima').attributes('aria-checked')).toBe('false')
+    await menuItem(wrapper, 'colima').trigger('click')
+    await flushPromises()
+    expect(host.useContext).toHaveBeenCalledWith('colima')
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Docker context: colima')
+  })
+
+  it('goes back to following the docker CLI when its context is chosen', async () => {
+    const { host, wrapper } = await mountWithProject()
+    treeListeners.at(-1)!({ ...tree, context: { active: 'colima', cli: 'default', names: ['default', 'colima'] } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="docker-context"]').text()).toBe('colima')
+    await wrapper.get('[data-test="group-docker"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Context').trigger('click')
+    await menuItem(wrapper, 'default (docker CLI)').trigger('click')
+    await flushPromises()
+    expect(host.useContext).toHaveBeenCalledWith(null)
   })
 
   it('says there is nothing to clean instead of asking', async () => {

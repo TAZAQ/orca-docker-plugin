@@ -4,6 +4,7 @@ import {
   CLEANUP_PREVIEW_REQUEST,
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
+  CONTEXT_USE_REQUEST,
   DASHBOARD_REQUEST,
   emptyTree,
   FILES_REQUEST,
@@ -37,6 +38,7 @@ function fakeOrca() {
   const createNetwork = vi.fn(async () => undefined)
   const createVolume = vi.fn(async () => undefined)
   const remove = vi.fn(async () => undefined)
+  const useContext = vi.fn(async () => undefined)
   const systemCleanup = vi.fn(async () => ({ removed: 0, skipped: 0, failed: [], buildCacheFreed: 0 }))
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
@@ -66,7 +68,8 @@ function fakeOrca() {
       }),
       systemCleanup,
       dashboard: async (kind: string, id: string) => ({ title: `${kind} ${id}`, fields: [], tables: [] }),
-      remove
+      remove,
+      useContext
     }
   )
   return {
@@ -84,6 +87,7 @@ function fakeOrca() {
     createVolume,
     systemCleanup,
     remove,
+    useContext,
     request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }
