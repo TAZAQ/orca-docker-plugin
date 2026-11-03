@@ -22,13 +22,14 @@ orca plugin dev load dist    # then repeat with the --approve <fingerprint> it p
 - **Click a running container:** opens its shell in a terminal tab.
 - **Right-click any row:** start, stop, restart, deploy, pause, inspect, processes, files, attach, exec and more.
 - **Logs in the panel:** live stream with a line filter.
-- **Image cleanup:** remove dangling or unused images. Shows what goes first.
+- **Clean Up** on Containers, Images, Networks and Volumes: removes stopped or unused ones. Lists what goes, then removes exactly that.
+- **Create networks and volumes:** network driver picker, `--attachable` and `--internal` switches.
 - **Removing an image also removes its containers.** You confirm the list first.
 - **Crash notifications:** crashes, out-of-memory kills, unhealthy containers.
 
 ## Limitations
 
-- Networks and volumes are read-only.
+- A single network or volume cannot be removed from the panel yet; Clean Up removes the unused ones.
 - No Compose profile or file picker.
 - Jump to Source and Open Project are off until Orca's API can open files.
 - Terminals open through the `orca-ide` CLI, because the plugin API cannot create them yet.

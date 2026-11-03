@@ -190,6 +190,7 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
               :class="{ active: active === 'containers' }"
               data-test="group-containers"
               @click="toggle('containers')"
+              @contextmenu.prevent="showMenu($event, 'containers', { kind: 'containers' })"
             >
               <span class="chevron" :class="{ open: isOpen('containers'), hidden: shown.containers.length === 0 }" />
               <TreeIcon name="containers" />
@@ -244,6 +245,7 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
               :class="{ active: active === 'networks' }"
               data-test="group-networks"
               @click="toggle('networks')"
+              @contextmenu.prevent="showMenu($event, 'networks', { kind: 'networks' })"
             >
               <span class="chevron" :class="{ open: isOpen('networks'), hidden: shown.networks.length === 0 }" />
               <TreeIcon name="networks" />
@@ -270,6 +272,7 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
               :class="{ active: active === 'volumes' }"
               data-test="group-volumes"
               @click="toggle('volumes')"
+              @contextmenu.prevent="showMenu($event, 'volumes', { kind: 'volumes' })"
             >
               <span class="chevron" :class="{ open: isOpen('volumes'), hidden: shown.volumes.length === 0 }" />
               <TreeIcon name="volumes" />

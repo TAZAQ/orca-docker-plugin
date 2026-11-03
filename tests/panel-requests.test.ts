@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { registerPanelRequests } from '../src/worker/panel-requests'
 import {
+  CLEANUP_PREVIEW_REQUEST,
+  CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
   emptyTree,
   FILES_REQUEST,
@@ -11,8 +13,10 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  NETWORK_CREATE_REQUEST,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  VOLUME_CREATE_REQUEST,
   TREE_REQUEST,
   type DockerTree
 } from '../src/shared/protocol'
@@ -25,6 +29,9 @@ function fakeOrca() {
   const files = vi.fn(async () => 'total 0')
   const removeImage = vi.fn(async () => undefined)
   const pruneImages = vi.fn(async () => ({ removed: 0, reclaimed: 0 }))
+  const cleanupFn = vi.fn(async () => ({ removed: 1, skipped: 0, failed: [] }))
+  const createNetwork = vi.fn(async () => undefined)
+  const createVolume = vi.fn(async () => undefined)
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
     { panels: { handle: (name, handler) => void handlers.set(name, handler) } },
@@ -38,7 +45,11 @@ function fakeOrca() {
       files,
       removeImage,
       previewPrune: async () => ({ images: [] }),
-      pruneImages
+      pruneImages,
+      previewCleanup: async () => ({ items: [] }),
+      cleanup: cleanupFn,
+      createNetwork,
+      createVolume
     }
   )
   return {
@@ -51,6 +62,9 @@ function fakeOrca() {
     files,
     removeImage,
     pruneImages,
+    cleanup: cleanupFn,
+    createNetwork,
+    createVolume,
     request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }

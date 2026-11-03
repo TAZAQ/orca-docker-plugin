@@ -142,6 +142,44 @@ describe('DockerApi', () => {
     await expect(api.pruneImages('dangling')).resolves.toEqual({ removed: 0, reclaimed: 0 })
   })
 
+  it('creates and removes networks and volumes, and removes a stopped container without force', async () => {
+    const seen: string[] = []
+    const api = await fakeDaemon((url, res, method) => {
+      seen.push(`${method} ${url}`)
+      res.statusCode = url.includes('create') ? 201 : 204
+      res.end(url.includes('create') ? JSON.stringify({ Id: 'x' }) : '')
+    })
+    await api.createNetwork({ name: 'net', driver: 'bridge', attachable: true, internal: true })
+    await api.createVolume('vol')
+    await api.removeNetwork('n1')
+    await api.removeVolume('my vol')
+    await api.removeStoppedContainer('c1')
+    expect(seen).toEqual([
+      'POST /networks/create',
+      'POST /volumes/create',
+      'DELETE /networks/n1',
+      'DELETE /volumes/my%20vol',
+      'DELETE /containers/c1'
+    ])
+  })
+
+  it('sends the network options to the daemon', async () => {
+    let body = ''
+    const api = await fakeDaemon((_url, res) => {
+      res.statusCode = 201
+      res.end('{}')
+    })
+    server!.prependListener('request', (req) => req.on('data', (chunk: Buffer) => (body += chunk)))
+    await api.createNetwork({ name: 'net', driver: 'overlay', attachable: true, internal: false })
+    expect(JSON.parse(body)).toEqual({
+      Name: 'net',
+      Driver: 'overlay',
+      Attachable: true,
+      Internal: false,
+      CheckDuplicate: true
+    })
+  })
+
   it('reads what a command printed in a container', async () => {
     const seen: string[] = []
     const api = await fakeDaemon((url, res, method) => {

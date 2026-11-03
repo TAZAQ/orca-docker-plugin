@@ -1,5 +1,6 @@
 import type { ProjectAction, ServiceAction } from '../shared/compose'
 import type {
+  CleanupKind,
   ContainerAction,
   PruneMode,
   TreeContainer,
@@ -33,6 +34,9 @@ export type MenuTarget =
     }
   | { kind: 'docker' }
   | { kind: 'images' }
+  | { kind: 'containers' }
+  | { kind: 'networks' }
+  | { kind: 'volumes' }
   | { kind: 'image'; image: TreeImage }
 
 export type MenuActions = {
@@ -54,6 +58,9 @@ export type MenuActions = {
   pullImage(name: string): void
   removeImage(image: TreeImage): void
   pruneImages(mode: PruneMode): void
+  cleanup(kind: CleanupKind): void
+  createNetwork(): void
+  createVolume(): void
 }
 
 const NEEDS_NEWER_ORCA = 'This version of Orca cannot open files from a plugin'
@@ -124,9 +131,13 @@ function imageMenu(image: TreeImage, actions: MenuActions): MenuEntry[] {
 
 function imagesMenu(actions: MenuActions): MenuEntry[] {
   return [
-    { label: 'Remove Dangling Images', icon: 'remove', run: () => actions.pruneImages('dangling') },
-    { label: 'Remove Unused Images', icon: 'remove', run: () => actions.pruneImages('unused') }
+    { label: 'Clean Up', icon: 'remove', run: () => actions.pruneImages('unused') },
+    { label: 'Remove Dangling Images', icon: 'remove', run: () => actions.pruneImages('dangling') }
   ]
+}
+
+function cleanupItem(kind: CleanupKind, actions: MenuActions): MenuItem {
+  return { label: 'Clean Up', icon: 'remove', run: () => actions.cleanup(kind) }
 }
 
 function imageItems(container: TreeContainer, actions: MenuActions): MenuEntry[] {
@@ -224,6 +235,12 @@ export function buildMenu(target: MenuTarget, actions: MenuActions): MenuEntry[]
       return dockerMenu(actions)
     case 'images':
       return imagesMenu(actions)
+    case 'containers':
+      return [cleanupItem('containers', actions)]
+    case 'networks':
+      return [{ label: 'Create Network', icon: 'add', run: () => actions.createNetwork() }, cleanupItem('networks', actions)]
+    case 'volumes':
+      return [{ label: 'Create Volume', icon: 'add', run: () => actions.createVolume() }, cleanupItem('volumes', actions)]
     case 'image':
       return imageMenu(target.image, actions)
   }

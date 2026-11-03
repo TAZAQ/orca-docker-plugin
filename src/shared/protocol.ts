@@ -115,3 +115,39 @@ export type ImageRemoveInput = {
 export type PruneInput = { mode: PruneMode }
 export type PrunePreview = { images: { name: string; size: number }[] }
 export type PruneResult = { removed: number; reclaimed: number }
+
+export const CLEANUP_PREVIEW_REQUEST = 'docker.cleanup.preview'
+export const CLEANUP_REQUEST = 'docker.cleanup'
+export const NETWORK_CREATE_REQUEST = 'docker.network.create'
+export const VOLUME_CREATE_REQUEST = 'docker.volume.create'
+
+/** Stopped containers, or networks and volumes no container refers to. */
+export const CLEANUP_KINDS = ['containers', 'networks', 'volumes'] as const
+export type CleanupKind = (typeof CLEANUP_KINDS)[number]
+
+export type CleanupItem = { id: string; name: string; detail: string }
+export type CleanupPreview = { items: CleanupItem[] }
+export type CleanupInput = {
+  kind: CleanupKind
+  /** Exactly what the person saw and agreed to; nothing else is removed. */
+  ids: string[]
+}
+export type CleanupResult = {
+  removed: number
+  /** In use again by now, so left alone. */
+  skipped: number
+  failed: { name: string; error: string }[]
+}
+
+export const NETWORK_DRIVERS = ['bridge', 'overlay', 'macvlan', 'ipvlan'] as const
+export type NetworkDriver = (typeof NETWORK_DRIVERS)[number]
+export type NetworkCreateInput = {
+  name: string
+  driver: NetworkDriver
+  attachable: boolean
+  internal: boolean
+}
+export type VolumeCreateInput = { name: string }
+
+/** What Docker accepts as a network or volume name. */
+export const DOCKER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/

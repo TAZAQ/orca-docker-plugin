@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
+import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type CleanupPreview, type CleanupResult, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -48,6 +48,10 @@ function fakeHost(context: WorkspaceContext) {
     removeImage: vi.fn(async () => undefined),
     previewPrune: vi.fn(async () => ({ images: [] as { name: string; size: number }[] })),
     pruneImages: vi.fn(async () => ({ removed: 2, reclaimed: 30_000_000 })),
+    previewCleanup: vi.fn(async (): Promise<CleanupPreview> => ({ items: [] })),
+    cleanup: vi.fn(async (): Promise<CleanupResult> => ({ removed: 2, skipped: 0, failed: [] })),
+    createNetwork: vi.fn(async () => undefined),
+    createVolume: vi.fn(async () => undefined),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -311,11 +315,15 @@ describe('panel', () => {
     }))
     await wrapper.setProps({ host })
     await wrapper.get('[data-test="group-images"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Remove Unused Images').trigger('click')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
     await flushPromises()
     expect(host.previewPrune).toHaveBeenCalledWith('unused')
     expect(host.pruneImages).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('Clean Up')
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain('Remove all unused images?')
     expect(wrapper.get('[data-test="dialog-message"]').text()).toContain('30 MB')
+    expect(wrapper.get('[data-test="dialog-confirm"]').text()).toBe('Yes')
+    expect(wrapper.get('[data-test="dialog-cancel"]').text()).toBe('No')
     expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('old:2 (20 MB)')
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
     await flushPromises()
@@ -336,6 +344,113 @@ describe('panel', () => {
     await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="status"]').text()).toBe('Removed 1 image, freed 1 MB')
+  })
+
+  it.each([
+    ['containers', 'Remove all stopped containers?', 'Removed 2 containers'],
+    ['networks', 'Remove all unused networks?', 'Removed 2 networks'],
+    ['volumes', 'Remove all unused volumes?', 'Removed 2 volumes']
+  ] as const)('cleans up %s after asking, removing exactly the listed ones', async (kind, question, done) => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewCleanup = vi.fn(async () => ({
+      items: [
+        { id: 'a'.repeat(12), name: 'first', detail: 'x' },
+        { id: 'b'.repeat(12), name: 'second', detail: 'y' }
+      ]
+    }))
+    await wrapper.setProps({ host })
+    await wrapper.get(`[data-test="group-${kind}"]`).trigger('contextmenu')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
+    await flushPromises()
+    expect(host.previewCleanup).toHaveBeenCalledWith(kind)
+    expect(host.cleanup).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain(question)
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('second (y)')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.cleanup).toHaveBeenCalledWith(kind, ['a'.repeat(12), 'b'.repeat(12)])
+    expect(wrapper.get('[data-test="status"]').text()).toBe(done)
+  })
+
+  it('warns that cleaning up volumes deletes their data', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewCleanup = vi.fn(async () => ({ items: [{ id: 'cache', name: 'cache', detail: 'local' }] }))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-volumes"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain('deleted for good')
+  })
+
+  it('says what a cleanup skipped or could not remove', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.previewCleanup = vi.fn(async () => ({ items: [{ id: 'a'.repeat(12), name: 'old', detail: 'x' }] }))
+    host.cleanup = vi.fn(async () => ({ removed: 0, skipped: 1, failed: [{ name: 'old', error: 'in use' }] }))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-containers"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Clean Up').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe(
+      'Removed 0 containers; 1 in use again, left alone; failed: old (in use)'
+    )
+  })
+
+  it('creates a volume only with a valid name', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-volumes"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Volume').trigger('click')
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('docker volume create --name')
+    const ok = wrapper.get('[data-test="dialog-confirm"]')
+    expect(ok.attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="dialog-input"]').setValue('bad name')
+    expect(ok.attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="dialog-input"]').setValue('pgdata')
+    await ok.trigger('click')
+    await flushPromises()
+    expect(host.createVolume).toHaveBeenCalledWith('pgdata')
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Volume pgdata created')
+  })
+
+  it('creates a network from a driver choice and option switches, showing the command', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-networks"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Network').trigger('click')
+    const command = () => wrapper.get('[data-test="network-command"]').text()
+    expect(command()).toBe('docker network create <name>')
+    expect(wrapper.get('[data-test="network-ok"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="network-name"]').setValue('shop_net')
+    await wrapper.get('[data-test="network-driver"]').setValue('overlay')
+    await wrapper.get('[data-test="network-attachable"]').trigger('click')
+    expect(wrapper.get('[data-test="network-attachable"]').attributes('aria-pressed')).toBe('true')
+    expect(command()).toBe('docker network create --driver overlay --attachable shop_net')
+    await wrapper.get('[data-test="network-internal"]').trigger('click')
+    await wrapper.get('[data-test="network-internal"]').trigger('click')
+    await wrapper.get('[data-test="network-ok"]').trigger('click')
+    await flushPromises()
+    expect(host.createNetwork).toHaveBeenCalledWith({
+      name: 'shop_net',
+      driver: 'overlay',
+      attachable: true,
+      internal: false
+    })
+    expect(wrapper.find('[data-test="network-dialog"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="status"]').text()).toBe('Network shop_net created')
+  })
+
+  it('shows why a network could not be created', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.createNetwork = vi.fn(async () => {
+      throw new Error('This node is not a swarm manager.')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-networks"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Create Network').trigger('click')
+    await wrapper.get('[data-test="network-name"]').setValue('net')
+    await wrapper.get('[data-test="network-ok"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="status"]').text()).toBe('This node is not a swarm manager.')
   })
 
   it('says there is nothing to clean instead of asking', async () => {

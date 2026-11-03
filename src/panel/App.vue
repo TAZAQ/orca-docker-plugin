@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
+  DOCKER_NAME,
   emptyTree,
+  type CleanupKind,
   type ContainerAction,
   type DockerTree,
+  type NetworkCreateInput,
   type PruneMode,
   type TreeImage,
   type TreeContainer,
@@ -24,6 +27,7 @@ import { copyText } from './clipboard'
 import ContextMenu from './components/ContextMenu.vue'
 import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
 import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
+import NetworkDialog from './components/NetworkDialog.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
 import { formatSize, isRunning } from './container-state'
@@ -45,6 +49,7 @@ const logsContainer = ref<TreeContainer | null>(null)
 const menu = ref<{ x: number; y: number; items: MenuEntry[] } | null>(null)
 const details = ref<Details | null>(null)
 const dialog = ref<DialogRequest | null>(null)
+const creatingNetwork = ref(false)
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 let contextSubscription: Subscription | undefined
@@ -188,14 +193,27 @@ async function askToPrune(mode: PruneMode): Promise<void> {
     const total = formatSize(images.reduce((sum, image) => sum + image.size, 0))
     const shown = images.slice(0, PRUNE_LIST_MAX).map((image) => `${image.name} (${formatSize(image.size)})`)
     const more = images.length - shown.length
-    dialog.value = {
-      title: `Remove ${counted(images.length, `${mode} image`)}?`,
-      message: `Frees up to ${total}, less where images share layers. Images used by any container stay, even a stopped one.`,
-      items: more > 0 ? [...shown, `…and ${more} more`] : shown,
-      confirmLabel: `Remove ${counted(images.length, 'image')}`,
-      danger: true,
-      confirm: () => void prune(mode)
-    }
+    const items = more > 0 ? [...shown, `…and ${more} more`] : shown
+    const freed = `Frees up to ${total}, less where images share layers. Images used by any container stay, even a stopped one.`
+    dialog.value =
+      mode === 'unused'
+        ? {
+            title: 'Clean Up',
+            message: `Remove all unused images? That is ${counted(images.length, 'image')}. ${freed}`,
+            items,
+            confirmLabel: 'Yes',
+            cancelLabel: 'No',
+            danger: true,
+            confirm: () => void prune(mode)
+          }
+        : {
+            title: `Remove ${counted(images.length, `${mode} image`)}?`,
+            message: freed,
+            items,
+            confirmLabel: `Remove ${counted(images.length, 'image')}`,
+            danger: true,
+            confirm: () => void prune(mode)
+          }
   } catch (error) {
     showError(error)
   }
@@ -206,6 +224,98 @@ async function prune(mode: PruneMode): Promise<void> {
   try {
     const { removed, reclaimed } = await props.host.pruneImages(mode)
     status.value = { kind: 'info', text: `Removed ${counted(removed, 'image')}, freed ${formatSize(reclaimed)}` }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+const CLEANUP_TEXT: Record<CleanupKind, { noun: string; question: string; warning: string }> = {
+  containers: {
+    noun: 'stopped container',
+    question: 'Remove all stopped containers?',
+    warning: 'Whatever they keep outside volumes is lost.'
+  },
+  networks: {
+    noun: 'unused network',
+    question: 'Remove all unused networks?',
+    warning: 'Docker’s own networks stay.'
+  },
+  volumes: {
+    noun: 'unused volume',
+    question: 'Remove all unused volumes?',
+    warning: 'Their data is deleted for good. A volume of a stopped container is not unused and stays.'
+  }
+}
+
+async function askToClean(kind: CleanupKind): Promise<void> {
+  const text = CLEANUP_TEXT[kind]
+  try {
+    const { items } = await props.host.previewCleanup(kind)
+    if (items.length === 0) {
+      status.value = { kind: 'info', text: `No ${text.noun}s to remove` }
+      return
+    }
+    const shown = items.slice(0, PRUNE_LIST_MAX).map((item) => `${item.name} (${item.detail})`)
+    const more = items.length - shown.length
+    dialog.value = {
+      title: 'Clean Up',
+      message: `${text.question} That is ${counted(items.length, text.noun)}. ${text.warning}`,
+      items: more > 0 ? [...shown, `…and ${more} more`] : shown,
+      confirmLabel: 'Yes',
+      cancelLabel: 'No',
+      danger: true,
+      confirm: () =>
+        void clean(
+          kind,
+          items.map((item) => item.id)
+        )
+    }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+async function clean(kind: CleanupKind, ids: string[]): Promise<void> {
+  const { noun } = CLEANUP_TEXT[kind]
+  status.value = { kind: 'info', text: 'Cleaning up…' }
+  try {
+    const { removed, skipped, failed } = await props.host.cleanup(kind, ids)
+    const parts = [`Removed ${counted(removed, noun.replace(/^\w+ /, ''))}`]
+    if (skipped > 0) {
+      parts.push(`${skipped} in use again, left alone`)
+    }
+    if (failed.length > 0) {
+      parts.push(`failed: ${failed.map((item) => `${item.name} (${item.error})`).join(', ')}`)
+    }
+    status.value = { kind: failed.length > 0 ? 'error' : 'info', text: parts.join('; ') }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+async function createNetwork(input: NetworkCreateInput): Promise<void> {
+  try {
+    await props.host.createNetwork(input)
+    status.value = { kind: 'info', text: `Network ${input.name} created` }
+  } catch (error) {
+    showError(error)
+  }
+}
+
+function askForVolume(): void {
+  dialog.value = {
+    title: 'Create Volume',
+    message: 'Letters, digits, and _ . - after the first character.',
+    confirmLabel: 'OK',
+    input: { placeholder: 'specify volume name', prefix: 'docker volume create --name', pattern: DOCKER_NAME },
+    confirm: (name) => void createVolume(name)
+  }
+}
+
+async function createVolume(name: string): Promise<void> {
+  try {
+    await props.host.createVolume(name)
+    status.value = { kind: 'info', text: `Volume ${name} created` }
   } catch (error) {
     showError(error)
   }
@@ -271,7 +381,10 @@ const menuActions: MenuActions = {
   shell: openShell,
   pullImage: (name) => void runInTerminal(`pull ${name}`, imagePullCommand(name)),
   removeImage: askToRemoveImage,
-  pruneImages: (mode) => void askToPrune(mode)
+  pruneImages: (mode) => void askToPrune(mode),
+  cleanup: (kind) => void askToClean(kind),
+  createNetwork: () => (creatingNetwork.value = true),
+  createVolume: askForVolume
 }
 
 function openMenu(event: MouseEvent, target: MenuTarget): void {
@@ -375,6 +488,11 @@ onBeforeUnmount(() => {
       @close="menu = null"
     />
     <DialogBox v-if="dialog" :request="dialog" @close="dialog = null" />
+    <NetworkDialog
+      v-if="creatingNetwork"
+      @create="createNetwork"
+      @close="creatingNetwork = false"
+    />
   </main>
 </template>
 

@@ -1,5 +1,10 @@
 import { request, type IncomingMessage, type RequestOptions } from 'node:http'
-import type { ContainerAction, PruneMode, PruneResult } from '../shared/protocol'
+import type {
+  ContainerAction,
+  NetworkCreateInput,
+  PruneMode,
+  PruneResult
+} from '../shared/protocol'
 import type { DockerEndpoint } from './docker-endpoint'
 import { LogDecoder } from './log-decoder'
 
@@ -21,10 +26,12 @@ export type DockerContainer = {
   ImageID: string
   Ports: { PrivatePort: number; PublicPort?: number; Type: string; IP?: string }[]
   Labels: Record<string, string>
+  Mounts?: { Type: string; Name?: string }[]
+  NetworkSettings?: { Networks?: Record<string, { NetworkID?: string }> }
 }
 
 export type DockerImage = { Id: string; RepoTags: string[] | null; Size: number }
-export type DockerNetwork = { Id: string; Name: string; Driver: string }
+export type DockerNetwork = { Id: string; Name: string; Driver: string; Scope?: string }
 export type DockerVolume = { Name: string; Driver: string }
 
 export class DockerApiError extends Error {
@@ -124,6 +131,44 @@ export class DockerApi {
 
   containerProcesses(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }> {
     return this.getJson(`/containers/${id}/top`)
+  }
+
+  /** Sends a request that changes something and reads its JSON answer, if any. */
+  private async change(method: string, path: string, body?: unknown): Promise<unknown> {
+    const res = await this.open(path, AbortSignal.timeout(ACTION_TIMEOUT_MS), method, body)
+    let text = ''
+    res.setEncoding('utf8')
+    for await (const chunk of res) {
+      text += chunk as string
+    }
+    return text === '' ? null : (JSON.parse(text) as unknown)
+  }
+
+  async createNetwork({ name, driver, attachable, internal }: NetworkCreateInput): Promise<void> {
+    await this.change('POST', '/networks/create', {
+      Name: name,
+      Driver: driver,
+      Attachable: attachable,
+      Internal: internal,
+      CheckDuplicate: true
+    })
+  }
+
+  async createVolume(name: string): Promise<void> {
+    await this.change('POST', '/volumes/create', { Name: name })
+  }
+
+  async removeNetwork(id: string): Promise<void> {
+    await this.change('DELETE', `/networks/${encodeURIComponent(id)}`)
+  }
+
+  async removeVolume(name: string): Promise<void> {
+    await this.change('DELETE', `/volumes/${encodeURIComponent(name)}`)
+  }
+
+  /** Without force, so the daemon refuses a container that started again. */
+  async removeStoppedContainer(id: string): Promise<void> {
+    await this.change('DELETE', `/containers/${id}`)
   }
 
   async forceRemoveContainer(id: string): Promise<void> {

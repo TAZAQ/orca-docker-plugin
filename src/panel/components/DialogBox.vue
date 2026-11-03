@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, useTemplateRef } from 'vue'
+import { computed, onMounted, ref, useTemplateRef } from 'vue'
 
 export type DialogRequest = {
   title: string
@@ -7,8 +7,16 @@ export type DialogRequest = {
   /** Named things the action touches, shown as a list. */
   items?: string[]
   confirmLabel: string
+  /** "Cancel" unless set. */
+  cancelLabel?: string
   danger?: boolean
-  input?: { placeholder: string }
+  input?: {
+    placeholder: string
+    /** The fixed start of the command, shown before the field. */
+    prefix?: string
+    /** OK stays off until the value matches. */
+    pattern?: RegExp
+  }
   confirm(value: string): void
 }
 
@@ -19,12 +27,21 @@ const value = ref('')
 const cancel = useTemplateRef<HTMLButtonElement>('cancel')
 const field = useTemplateRef<HTMLInputElement>('field')
 
+const valid = computed(() => {
+  const input = props.request.input
+  if (!input) {
+    return true
+  }
+  const text = value.value.trim()
+  return text !== '' && (input.pattern?.test(text) ?? true)
+})
+
 function confirm(): void {
-  if (props.request.input && value.value.trim() === '') {
+  if (!valid.value) {
     return
   }
   emit('close')
-  props.request.confirm(value.value)
+  props.request.confirm(value.value.trim())
 }
 
 // Cancel takes the focus, so Enter alone can never confirm something destructive.
@@ -39,17 +56,26 @@ onMounted(() => (props.request.input ? field.value : cancel.value)?.focus())
       <ul v-if="request.items?.length" class="box-items" data-test="dialog-items">
         <li v-for="item in request.items" :key="item">{{ item }}</li>
       </ul>
-      <input
-        v-if="request.input"
-        ref="field"
-        v-model="value"
-        :placeholder="request.input.placeholder"
-        data-test="dialog-input"
-        @keydown.enter="confirm"
-      />
+      <label v-if="request.input" class="box-field">
+        <code v-if="request.input.prefix" class="box-prefix">{{ request.input.prefix }}</code>
+        <input
+          ref="field"
+          v-model="value"
+          :placeholder="request.input.placeholder"
+          data-test="dialog-input"
+          @keydown.enter="confirm"
+        />
+      </label>
       <div class="box-buttons">
-        <button ref="cancel" data-test="dialog-cancel" @click="emit('close')">Cancel</button>
-        <button :class="{ danger: request.danger }" data-test="dialog-confirm" @click="confirm">
+        <button ref="cancel" data-test="dialog-cancel" @click="emit('close')">
+          {{ request.cancelLabel ?? 'Cancel' }}
+        </button>
+        <button
+          :class="{ danger: request.danger }"
+          :disabled="!valid"
+          data-test="dialog-confirm"
+          @click="confirm"
+        >
           {{ request.confirmLabel }}
         </button>
       </div>
@@ -97,6 +123,24 @@ onMounted(() => (props.request.input ? field.value : cancel.value)?.focus())
   overflow-y: auto;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+.box-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.box-field input {
+  flex: 1;
+  min-width: 120px;
+}
+.box-prefix {
+  font-size: 11px;
+  color: var(--orca-muted-foreground);
+}
+.box-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .box-buttons {
   display: flex;

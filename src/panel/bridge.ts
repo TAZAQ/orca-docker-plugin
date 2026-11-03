@@ -1,4 +1,6 @@
 import {
+  CLEANUP_PREVIEW_REQUEST,
+  CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
   FILES_REQUEST,
   IMAGE_PRUNE_PREVIEW_REQUEST,
@@ -9,16 +11,22 @@ import {
   LOGS_RENEW_REQUEST,
   LOGS_START_REQUEST,
   LOGS_STOP_REQUEST,
+  NETWORK_CREATE_REQUEST,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  VOLUME_CREATE_REQUEST,
   TREE_CHANGED_EVENT,
   TREE_REQUEST,
+  type CleanupKind,
+  type CleanupPreview,
+  type CleanupResult,
   type ContainerAction,
   type ContainerActionInput,
   type DockerTree,
   type FilesOutput,
   type InspectInput,
   type LogsPayload,
+  type NetworkCreateInput,
   type LogsRenewOutput,
   type LogsStartOutput,
   type ProcessesOutput,
@@ -49,6 +57,10 @@ export type HostBridge = {
   removeImage(id: string, containerIds: string[]): Promise<void>
   previewPrune(mode: PruneMode): Promise<PrunePreview>
   pruneImages(mode: PruneMode): Promise<PruneResult>
+  previewCleanup(kind: CleanupKind): Promise<CleanupPreview>
+  cleanup(kind: CleanupKind, ids: string[]): Promise<CleanupResult>
+  createNetwork(input: NetworkCreateInput): Promise<void>
+  createVolume(name: string): Promise<void>
   startLogs(id: string): Promise<string>
   renewLogs(streamId: string): Promise<boolean>
   stopLogs(streamId: string): Promise<void>
@@ -68,7 +80,7 @@ export type OrcaFrameApi = {
 
 /** Longer than the worker's own limit, so its error arrives rather than a bare timeout. */
 const CONTAINER_ACTION_TIMEOUT_MS = 70_000
-/** The longest Orca lets a request take. A prune may run longer and still finish in the worker. */
+/** The longest Orca lets a request take. A cleanup may run longer and still finish in the worker. */
 const IMAGE_REQUEST_TIMEOUT_MS = 120_000
 
 export function createHostBridge(orca: OrcaFrameApi): HostBridge {
@@ -122,6 +134,22 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
         { mode },
         { timeoutMs: IMAGE_REQUEST_TIMEOUT_MS }
       )) as PruneResult
+    },
+    async previewCleanup(kind) {
+      return (await orca.plugin.request(CLEANUP_PREVIEW_REQUEST, { kind })) as CleanupPreview
+    },
+    async cleanup(kind, ids) {
+      return (await orca.plugin.request(
+        CLEANUP_REQUEST,
+        { kind, ids },
+        { timeoutMs: IMAGE_REQUEST_TIMEOUT_MS }
+      )) as CleanupResult
+    },
+    async createNetwork(input) {
+      await orca.plugin.request(NETWORK_CREATE_REQUEST, input)
+    },
+    async createVolume(name) {
+      await orca.plugin.request(VOLUME_CREATE_REQUEST, { name })
     },
     async startLogs(id) {
       const output = (await orca.plugin.request(LOGS_START_REQUEST, { id })) as LogsStartOutput
