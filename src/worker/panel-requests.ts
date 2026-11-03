@@ -4,6 +4,7 @@ import {
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
   CONTAINER_ACTIONS,
+  DASHBOARD_REQUEST,
   DOCKER_NAME,
   FILES_REQUEST,
   IMAGE_SEARCH_REQUEST,
@@ -18,6 +19,7 @@ import {
   NETWORK_DRIVERS,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  REMOVE_REQUEST,
   PRUNE_MODES,
   SYSTEM_CLEANUP_PREVIEW_REQUEST,
   SYSTEM_CLEANUP_REQUEST,
@@ -30,6 +32,7 @@ import {
   type ContainerAction,
   type ContainerActionInput,
   type ContainerInput,
+  type Dashboard,
   type DockerTree,
   type FilesInput,
   type FilesOutput,
@@ -40,7 +43,9 @@ import {
   type LogsStreamInput,
   type NetworkCreateInput,
   type NetworkDriver,
+  type ObjectKind,
   type ProcessesOutput,
+  type RemoveInput,
   type PruneInput,
   type PruneMode,
   type PrunePreview,
@@ -62,7 +67,9 @@ type PanelRequestsDeps = {
   terminals: { open(input: OpenTerminalInput): Promise<void> }
   tree: { current(): Promise<DockerTree> }
   containerAction(id: string, action: ContainerAction): Promise<void>
-  inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
+  inspect(kind: ObjectKind, id: string): Promise<unknown>
+  dashboard(kind: ObjectKind, id: string): Promise<Dashboard>
+  remove(kind: RemoveInput['kind'], id: string): Promise<void>
   processes(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }>
   files(id: string, path: string): Promise<string>
   removeImage(id: string, containerIds: string[]): Promise<void>
@@ -96,13 +103,32 @@ function isContainerInput(input: unknown): input is ContainerInput {
   return typeof value?.id === 'string' && CONTAINER_ID.test(value.id)
 }
 
+/** Containers, images and networks go by a hex id (images with its sha256: prefix), volumes by name. */
+function isObjectId(kind: unknown, id: unknown): boolean {
+  if (typeof id !== 'string') {
+    return false
+  }
+  switch (kind) {
+    case 'container':
+    case 'network':
+      return CONTAINER_ID.test(id)
+    case 'image':
+      return IMAGE_ID.test(id)
+    case 'volume':
+      return DOCKER_NAME.test(id)
+    default:
+      return false
+  }
+}
+
 function isInspectInput(input: unknown): input is InspectInput {
   const value = input as Partial<InspectInput> | null
-  return (
-    typeof value?.id === 'string' &&
-    ((value.kind === 'container' && CONTAINER_ID.test(value.id)) ||
-      (value.kind === 'image' && IMAGE_ID.test(value.id)))
-  )
+  return isObjectId(value?.kind, value?.id)
+}
+
+function isRemoveInput(input: unknown): input is RemoveInput {
+  const value = input as Partial<RemoveInput> | null
+  return (value?.kind === 'network' || value?.kind === 'volume') && isObjectId(value.kind, value.id)
 }
 
 function isImageRemoveInput(input: unknown): input is ImageRemoveInput {
@@ -208,6 +234,21 @@ export function registerPanelRequests(orca: PanelRequestsApi, deps: PanelRequest
       throw invalidParams(INSPECT_REQUEST)
     }
     return deps.inspect(input.kind, input.id)
+  })
+
+  orca.panels.handle(DASHBOARD_REQUEST, (input) => {
+    if (!isInspectInput(input)) {
+      throw invalidParams(DASHBOARD_REQUEST)
+    }
+    return deps.dashboard(input.kind, input.id)
+  })
+
+  orca.panels.handle(REMOVE_REQUEST, async (input) => {
+    if (!isRemoveInput(input)) {
+      throw invalidParams(REMOVE_REQUEST)
+    }
+    await deps.remove(input.kind, input.id)
+    return null
   })
 
   orca.panels.handle(PROCESSES_REQUEST, async (input): Promise<ProcessesOutput> => {

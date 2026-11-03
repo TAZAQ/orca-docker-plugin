@@ -5,7 +5,9 @@ import type {
   PruneMode,
   TreeContainer,
   TreeImage,
+  TreeNetwork,
   TreeProject,
+  TreeVolume,
   TreeService
 } from '../shared/protocol'
 import type { IconName } from './components/ActionIcon.vue'
@@ -40,6 +42,8 @@ export type MenuTarget =
   | { kind: 'networks' }
   | { kind: 'volumes' }
   | { kind: 'image'; image: TreeImage }
+  | { kind: 'network'; network: TreeNetwork }
+  | { kind: 'volume'; volume: TreeVolume }
 
 export type ViewOptions = { showStopped: boolean; showUntagged: boolean }
 
@@ -70,7 +74,12 @@ export type MenuActions = {
   cleanup(kind: CleanupKind): void
   createNetwork(): void
   createVolume(): void
+  inspectObject(kind: 'network' | 'volume', id: string, name: string): void
+  removeObject(kind: 'network' | 'volume', id: string, name: string): void
 }
+
+/** Docker's own networks, which cannot be removed. */
+const BUILTIN_NETWORKS = new Set(['bridge', 'host', 'none'])
 
 const NEEDS_NEWER_ORCA = 'This version of Orca cannot open files from a plugin'
 const NOT_RUNNING = 'The container is not running'
@@ -283,6 +292,34 @@ export function buildMenu(target: MenuTarget, actions: MenuActions): MenuEntry[]
       return [cleanupItem('containers', actions)]
     case 'networks':
       return [{ label: 'Create Network', icon: 'add', run: () => actions.createNetwork() }, cleanupItem('networks', actions)]
+    case 'network':
+      return [
+        {
+          label: 'Inspect',
+          icon: 'search',
+          run: () => actions.inspectObject('network', target.network.id, target.network.name)
+        },
+        BUILTIN_NETWORKS.has(target.network.name)
+          ? { label: 'Remove', icon: 'remove', disabledReason: 'Docker’s own network' }
+          : {
+              label: 'Remove',
+              icon: 'remove',
+              run: () => actions.removeObject('network', target.network.id, target.network.name)
+            }
+      ]
+    case 'volume':
+      return [
+        {
+          label: 'Inspect',
+          icon: 'search',
+          run: () => actions.inspectObject('volume', target.volume.name, target.volume.name)
+        },
+        {
+          label: 'Remove',
+          icon: 'remove',
+          run: () => actions.removeObject('volume', target.volume.name, target.volume.name)
+        }
+      ]
     case 'volumes':
       return [{ label: 'Create Volume', icon: 'add', run: () => actions.createVolume() }, cleanupItem('volumes', actions)]
     case 'image':

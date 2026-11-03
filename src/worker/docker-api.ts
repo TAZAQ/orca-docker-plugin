@@ -2,6 +2,7 @@ import { request, type IncomingMessage, type RequestOptions } from 'node:http'
 import type {
   ContainerAction,
   NetworkCreateInput,
+  ObjectKind,
   PruneMode,
   PruneResult
 } from '../shared/protocol'
@@ -125,8 +126,14 @@ export class DockerApi {
     return Volumes ?? []
   }
 
-  inspect(kind: 'container' | 'image', id: string): Promise<unknown> {
-    return this.getJson(`/${kind}s/${encodeURIComponent(id)}/json`)
+  /** Networks and volumes answer at their bare path; containers and images under /json. */
+  inspect(kind: ObjectKind, id: string): Promise<unknown> {
+    const path = `/${kind}s/${encodeURIComponent(id)}`
+    return this.getJson(kind === 'network' || kind === 'volume' ? path : `${path}/json`)
+  }
+
+  imageHistory(id: string): Promise<{ Created: number; CreatedBy: string; Size: number }[]> {
+    return this.getJson(`/images/${encodeURIComponent(id)}/history`)
   }
 
   containerProcesses(id: string): Promise<{ Titles: string[]; Processes: string[][] | null }> {

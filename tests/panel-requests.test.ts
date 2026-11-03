@@ -4,6 +4,7 @@ import {
   CLEANUP_PREVIEW_REQUEST,
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
+  DASHBOARD_REQUEST,
   emptyTree,
   FILES_REQUEST,
   IMAGE_SEARCH_REQUEST,
@@ -17,6 +18,7 @@ import {
   NETWORK_CREATE_REQUEST,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  REMOVE_REQUEST,
   SYSTEM_CLEANUP_REQUEST,
   VOLUME_CREATE_REQUEST,
   TREE_REQUEST,
@@ -34,6 +36,7 @@ function fakeOrca() {
   const cleanupFn = vi.fn(async () => ({ removed: 1, skipped: 0, failed: [] }))
   const createNetwork = vi.fn(async () => undefined)
   const createVolume = vi.fn(async () => undefined)
+  const remove = vi.fn(async () => undefined)
   const systemCleanup = vi.fn(async () => ({ removed: 0, skipped: 0, failed: [], buildCacheFreed: 0 }))
   const logs = { start: vi.fn(() => 'stream-1'), renew: vi.fn(() => true), stop: vi.fn() }
   registerPanelRequests(
@@ -61,7 +64,9 @@ function fakeOrca() {
         images: [],
         buildCacheBytes: 0
       }),
-      systemCleanup
+      systemCleanup,
+      dashboard: async (kind: string, id: string) => ({ title: `${kind} ${id}`, fields: [], tables: [] }),
+      remove
     }
   )
   return {
@@ -78,6 +83,7 @@ function fakeOrca() {
     createNetwork,
     createVolume,
     systemCleanup,
+    remove,
     request: (name: string, input: unknown) => handlers.get(name)!(input),
     act: (input: unknown) => handlers.get(CONTAINER_ACTION_REQUEST)!(input)
   }
@@ -140,7 +146,7 @@ describe('registerPanelRequests', () => {
   it.each([
     [{ kind: 'image', id: 'abcdef012345' }],
     [{ kind: 'container', id: '../version' }],
-    [{ kind: 'network', id: 'abcdef012345' }]
+    [{ kind: 'secret', id: 'abcdef012345' }]
   ])('refuses to inspect %j', (input) => {
     const { request } = fakeOrca()
     expect(() => request(INSPECT_REQUEST, input)).toThrow('malformed input')

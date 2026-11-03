@@ -2,6 +2,7 @@ import {
   CLEANUP_PREVIEW_REQUEST,
   CLEANUP_REQUEST,
   CONTAINER_ACTION_REQUEST,
+  DASHBOARD_REQUEST,
   FILES_REQUEST,
   IMAGE_SEARCH_REQUEST,
   IMAGE_PRUNE_PREVIEW_REQUEST,
@@ -15,6 +16,7 @@ import {
   NETWORK_CREATE_REQUEST,
   OPEN_TERMINAL_REQUEST,
   PROCESSES_REQUEST,
+  REMOVE_REQUEST,
   SYSTEM_CLEANUP_PREVIEW_REQUEST,
   SYSTEM_CLEANUP_REQUEST,
   VOLUME_CREATE_REQUEST,
@@ -25,10 +27,12 @@ import {
   type CleanupResult,
   type ContainerAction,
   type ContainerActionInput,
+  type Dashboard,
   type DockerTree,
   type FilesOutput,
   type ImageSearchOutput,
-  type InspectInput,
+  type ObjectKind,
+  type RemoveInput,
   type LogsPayload,
   type NetworkCreateInput,
   type LogsRenewOutput,
@@ -58,7 +62,9 @@ export type HostBridge = {
   loadTree(): Promise<DockerTree>
   containerAction(id: string, action: ContainerAction): Promise<void>
   onTreeChanged(listener: (tree: DockerTree | null) => void): Subscription
-  inspect(kind: InspectInput['kind'], id: string): Promise<unknown>
+  inspect(kind: ObjectKind, id: string): Promise<unknown>
+  dashboard(kind: ObjectKind, id: string): Promise<Dashboard>
+  remove(kind: RemoveInput['kind'], id: string): Promise<void>
   processes(id: string): Promise<ProcessesOutput>
   files(id: string, path: string): Promise<string>
   removeImage(id: string, containerIds: string[]): Promise<void>
@@ -124,6 +130,12 @@ export function createHostBridge(orca: OrcaFrameApi): HostBridge {
     },
     inspect(kind, id) {
       return orca.plugin.request(INSPECT_REQUEST, { kind, id })
+    },
+    async dashboard(kind, id) {
+      return (await orca.plugin.request(DASHBOARD_REQUEST, { kind, id })) as Dashboard
+    },
+    async remove(kind, id) {
+      await orca.plugin.request(REMOVE_REQUEST, { kind, id })
     },
     async processes(id) {
       return (await orca.plugin.request(PROCESSES_REQUEST, { id })) as ProcessesOutput

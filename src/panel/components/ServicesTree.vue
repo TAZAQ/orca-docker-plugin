@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { DockerTree, TreeContainer, TreeProject, TreeService } from '../../shared/protocol'
+import type { DockerTree, ObjectKind, TreeContainer, TreeProject, TreeService } from '../../shared/protocol'
 import {
   containerDot,
   formatSize,
@@ -16,6 +16,7 @@ import TreeIcon from './TreeIcon.vue'
 const props = defineProps<{ tree: DockerTree | null; view: ViewOptions }>()
 const emit = defineEmits<{
   open: [container: TreeContainer]
+  select: [kind: ObjectKind, id: string]
   menu: [event: MouseEvent, target: MenuTarget]
 }>()
 
@@ -52,13 +53,20 @@ function toggle(key: string): void {
 
 function openContainer(key: string, container: TreeContainer): void {
   active.value = key
+  emit('select', 'container', container.id)
   emit('open', container)
+}
+
+function select(key: string, kind: ObjectKind, id: string): void {
+  active.value = key
+  emit('select', kind, id)
 }
 
 function clickService(key: string, service: TreeService): void {
   active.value = key
   const [only] = service.containers
   if (service.containers.length === 1 && only) {
+    emit('select', 'container', only.id)
     emit('open', only)
   }
 }
@@ -231,7 +239,7 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
                   :class="{ active: active === `image:${image.id}` }"
                   :title="image.tags.join('\n')"
                   :data-test="`image-row-${image.name}`"
-                  @click="active = `image:${image.id}`"
+                  @click="select(`image:${image.id}`, 'image', image.id)"
                   @contextmenu.prevent="showMenu($event, `image:${image.id}`, { kind: 'image', image })"
                 >
                   <span class="name">{{ image.name }}</span>
@@ -259,7 +267,9 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
                 <button
                   class="row"
                   :class="{ active: active === `network:${network.id}` }"
-                  @click="active = `network:${network.id}`"
+                  :data-test="`network-row-${network.name}`"
+                  @click="select(`network:${network.id}`, 'network', network.id)"
+                  @contextmenu.prevent="showMenu($event, `network:${network.id}`, { kind: 'network', network })"
                 >
                   <span class="name">{{ network.name }}</span>
                   <span class="meta">{{ network.driver }}</span>
@@ -286,7 +296,9 @@ function serviceTarget(project: TreeProject, service: TreeService): MenuTarget {
                 <button
                   class="row"
                   :class="{ active: active === `volume:${volume.name}` }"
-                  @click="active = `volume:${volume.name}`"
+                  :data-test="`volume-row-${volume.name}`"
+                  @click="select(`volume:${volume.name}`, 'volume', volume.name)"
+                  @contextmenu.prevent="showMenu($event, `volume:${volume.name}`, { kind: 'volume', volume })"
                 >
                   <span class="name">{{ volume.name }}</span>
                   <span class="meta">{{ volume.driver }}</span>

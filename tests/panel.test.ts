@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../src/panel/App.vue'
 import { createHostBridge, type HostBridge, type WorkspaceContext } from '../src/panel/bridge'
-import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type CleanupPreview, type CleanupResult, type SystemCleanupPreview, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
+import { emptyTree, OPEN_TERMINAL_REQUEST, type DockerTree, type CleanupPreview, type CleanupResult, type Dashboard, type SystemCleanupPreview, type LogsPayload, type OpenTerminalInput } from '../src/shared/protocol'
 
 const container = {
   id: 'abc',
@@ -64,6 +64,17 @@ function fakeHost(context: WorkspaceContext) {
     ),
     systemCleanup: vi.fn(async () => ({ removed: 3, skipped: 0, failed: [], buildCacheFreed: 2_000_000 })),
     openExternal: vi.fn(async () => true),
+    dashboard: vi.fn(
+      async (kind: string, id: string): Promise<Dashboard> => ({
+        title: `${kind} ${id}`,
+        fields: [
+          { label: 'ID', value: id },
+          { label: 'Empty', value: '' }
+        ],
+        tables: [{ title: 'Environment variables', columns: ['Name', 'Value'], rows: [['TZ', 'UTC']] }]
+      })
+    ),
+    remove: vi.fn(async () => undefined),
     startLogs: vi.fn(async () => 'stream-1'),
     renewLogs: vi.fn(async () => true),
     stopLogs: vi.fn(async () => undefined),
@@ -589,6 +600,77 @@ describe('panel', () => {
     expect(wrapper.find('[data-test="image-row-abc123"]').exists()).toBe(false)
     expect(JSON.parse(localStorage.getItem('docker.view')!)).toEqual({ showStopped: false, showUntagged: false })
     localStorage.clear()
+  })
+
+  it('shows the dashboard of the selected item', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-volumes"]').trigger('click')
+    await wrapper.get('[data-test="volume-row-pgdata"]').trigger('click')
+    await flushPromises()
+    expect(host.dashboard).toHaveBeenCalledWith('volume', 'pgdata')
+    const text = wrapper.get('[data-test="dashboard"]').text()
+    expect(text).toContain('volume pgdata')
+    expect(text).toContain('Environment variables')
+    expect(text).toContain('UTC')
+    expect(text).not.toContain('Empty')
+  })
+
+  it('shows the dashboard of a clicked container while its shell opens', async () => {
+    const { host, sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="service-row-shop-web"]').trigger('click')
+    await flushPromises()
+    expect(host.dashboard).toHaveBeenCalledWith('container', 'abc')
+    expect(sent).toHaveLength(1)
+  })
+
+  it('keeps the dashboard of the latest selection when answers come out of order', async () => {
+    const { host, wrapper } = await mountWithProject()
+    const answers: ((value: Dashboard) => void)[] = []
+    host.dashboard = vi.fn(() => new Promise<Dashboard>((resolve) => answers.push(resolve)))
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-images"]').trigger('click')
+    await wrapper.get('[data-test="group-networks"]').trigger('click')
+    await wrapper.get('[data-test="image-row-nginx:1"]').trigger('click')
+    await wrapper.get('[data-test="network-row-bridge"]').trigger('click')
+    answers[1]!({ title: 'the network', fields: [], tables: [] })
+    answers[0]!({ title: 'the image', fields: [], tables: [] })
+    await flushPromises()
+    expect(wrapper.get('[data-test="dashboard"]').text()).toContain('the network')
+  })
+
+  it('shows why a dashboard could not load', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.dashboard = vi.fn(async () => {
+      throw new Error('no such volume')
+    })
+    await wrapper.setProps({ host })
+    await wrapper.get('[data-test="group-volumes"]').trigger('click')
+    await wrapper.get('[data-test="volume-row-pgdata"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="dashboard-error"]').text()).toBe('no such volume')
+  })
+
+  it('removes a volume after warning about its data', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-volumes"]').trigger('click')
+    await wrapper.get('[data-test="volume-row-pgdata"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Remove').trigger('click')
+    expect(wrapper.get('[data-test="dialog-message"]').text()).toContain('deleted for good')
+    expect(host.remove).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.remove).toHaveBeenCalledWith('volume', 'pgdata')
+    expect(wrapper.get('[data-test="status"]').text()).toBe('pgdata removed')
+  })
+
+  it('inspects a network, and never offers to remove Docker’s own', async () => {
+    const { host, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="group-networks"]').trigger('click')
+    await wrapper.get('[data-test="network-row-bridge"]').trigger('contextmenu')
+    expect(menuItem(wrapper, 'Remove').attributes('disabled')).toBeDefined()
+    await menuItem(wrapper, 'Inspect').trigger('click')
+    await flushPromises()
+    expect(host.inspect).toHaveBeenCalledWith('network', 'n1')
   })
 
   it('says there is nothing to clean instead of asking', async () => {

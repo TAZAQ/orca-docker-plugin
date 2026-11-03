@@ -93,7 +93,9 @@ export const INSPECT_REQUEST = 'docker.inspect'
 export const PROCESSES_REQUEST = 'docker.processes'
 export const FILES_REQUEST = 'docker.files'
 
-export type InspectInput = { kind: 'container' | 'image'; id: string }
+/** The kinds of Docker objects that have a page of details, an inspect view, and an id. */
+export type ObjectKind = 'container' | 'image' | 'network' | 'volume'
+export type InspectInput = { kind: ObjectKind; id: string }
 export type ContainerInput = { id: string }
 export type FilesInput = { id: string; path: string }
 export type ProcessesOutput = { titles: string[]; processes: string[][] }
@@ -176,3 +178,15 @@ export type SystemCleanupInput = {
   buildCache: boolean
 }
 export type SystemCleanupResult = CleanupResult & { buildCacheFreed: number }
+
+export const DASHBOARD_REQUEST = 'docker.dashboard'
+export const REMOVE_REQUEST = 'docker.remove'
+
+/** The Dashboard tab of a JetBrains Services node: fields, then tables. */
+export type Dashboard = {
+  title: string
+  fields: { label: string; value: string }[]
+  tables: { title: string; columns: string[]; rows: string[][] }[]
+}
+
+export type RemoveInput = { kind: 'network' | 'volume'; id: string }

@@ -5,6 +5,7 @@ import { CrashNotifier } from './crash-notifier'
 import { DockerApi } from './docker-api'
 import { describeEndpoint, resolveDockerEndpoint } from './docker-endpoint'
 import { buildTree, TREE_EVENT_TYPES, TREE_EVENTS, TreePublisher } from './docker-tree'
+import { buildDashboard } from './docker-dashboard'
 import { cleanup, previewCleanup, previewSystemCleanup, systemCleanup } from './docker-cleanup'
 import { previewPrune, removeImageWithContainers } from './docker-images'
 import { EventWatcher } from './event-watcher'
@@ -130,6 +131,11 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     logs,
     containerAction: async (id, action) => (await api()).containerAction(id, action),
     inspect: async (kind, id) => (await api()).inspect(kind, id),
+    dashboard: async (kind, id) => buildDashboard(await api(), kind, id),
+    remove: async (kind, id) => {
+      const docker = await api()
+      await (kind === 'network' ? docker.removeNetwork(id) : docker.removeVolume(id))
+    },
     processes: async (id) => (await api()).containerProcesses(id),
     files: async (id, path) => (await api()).execOutput(id, ['ls', '-la', path]),
     removeImage: async (id, containerIds) =>

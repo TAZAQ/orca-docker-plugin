@@ -5,8 +5,10 @@ import {
   emptyTree,
   type CleanupKind,
   type ContainerAction,
+  type Dashboard,
   type DockerTree,
   type NetworkCreateInput,
+  type ObjectKind,
   type PruneMode,
   type TreeImage,
   type TreeContainer,
@@ -26,6 +28,7 @@ import ActionIcon from './components/ActionIcon.vue'
 import { copyText } from './clipboard'
 import ContextMenu from './components/ContextMenu.vue'
 import DetailsViewer, { type Details } from './components/DetailsViewer.vue'
+import DashboardView from './components/DashboardView.vue'
 import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
 import NetworkDialog from './components/NetworkDialog.vue'
 import LogViewer from './components/LogViewer.vue'
@@ -52,6 +55,8 @@ const details = ref<Details | null>(null)
 const dialog = ref<DialogRequest | null>(null)
 const creatingNetwork = ref(false)
 const view = ref<ViewOptions>(loadView())
+const dashboard = ref<{ data: Dashboard | null; error: string | null } | null>(null)
+let dashboardRequest = 0
 let treePoll: ReturnType<typeof setInterval> | undefined
 let treeSubscription: Subscription | undefined
 let contextSubscription: Subscription | undefined
@@ -321,6 +326,39 @@ async function createVolume(name: string): Promise<void> {
   }
 }
 
+/** Only the latest selection may fill the dashboard: answers can arrive out of order. */
+async function showDashboard(kind: ObjectKind, id: string): Promise<void> {
+  const request = ++dashboardRequest
+  dashboard.value = { data: null, error: null }
+  try {
+    const data = await props.host.dashboard(kind, id)
+    if (request === dashboardRequest) {
+      dashboard.value = { data, error: null }
+    }
+  } catch (error) {
+    if (request === dashboardRequest) {
+      dashboard.value = { data: null, error: errorText(error) }
+    }
+  }
+}
+
+function askToRemoveObject(kind: 'network' | 'volume', id: string, name: string): void {
+  dialog.value = {
+    title: `Remove ${kind} ${name}?`,
+    message:
+      kind === 'volume'
+        ? 'Its data is deleted for good. Docker refuses while a container uses it.'
+        : 'Docker refuses while a container uses it.',
+    confirmLabel: 'Remove',
+    danger: true,
+    confirm: () =>
+      void props.host
+        .remove(kind, id)
+        .then(() => (status.value = { kind: 'info', text: `${name} removed` }))
+        .catch(showError)
+  }
+}
+
 async function askToCleanEverything(): Promise<void> {
   status.value = { kind: 'info', text: 'Looking for what is unused…' }
   try {
@@ -378,6 +416,9 @@ const menuActions: MenuActions = {
   pullImagePrompt: askToPull,
   systemCleanup: () => void askToCleanEverything(),
   openPort,
+  inspectObject: (kind, id, name) =>
+    void showDetails(`Inspect: ${name}`, async () => JSON.stringify(await props.host.inspect(kind, id), null, 2)),
+  removeObject: askToRemoveObject,
   compose: (project, action) => {
     if (action === 'down') {
       dialog.value = {
@@ -517,9 +558,17 @@ onBeforeUnmount(() => {
         :tree="tree"
         :view="view"
         @open="openContainer"
+        @select="showDashboard"
         @menu="openMenu"
       />
     </section>
+
+    <DashboardView
+      v-if="dashboard"
+      :dashboard="dashboard.data"
+      :error="dashboard.error"
+      @close="dashboard = null"
+    />
 
     <DetailsViewer v-if="details" :details="details" @close="details = null" />
 
