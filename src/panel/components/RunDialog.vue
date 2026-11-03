@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommandPreview from './CommandPreview.vue'
 import { computed, ref } from 'vue'
 import { DEFAULT_RUN, dockerRunCommand, ENV_ASSIGNMENT, PORT_BINDING, type RunOptions } from '../../shared/docker-run'
 import { DOCKER_NAME } from '../../shared/protocol'
@@ -68,7 +69,7 @@ function run(): void {
   <div class="backdrop" data-test="run-dialog" @keydown.esc="emit('close')" @click.self="emit('close')">
     <div class="box" role="dialog" aria-modal="true">
       <h2 class="box-title">Create Container from {{ image }}</h2>
-      <code class="preview" data-test="run-command">{{ command }}</code>
+      <CommandPreview :command="command" data-test="run-command" />
       <label class="row">
         <span>Name</span>
         <input v-model="options.name" placeholder="random if empty" data-test="run-name" />
@@ -158,13 +159,6 @@ function run(): void {
   font-size: 13px;
   font-weight: 600;
   overflow-wrap: anywhere;
-}
-.preview {
-  padding: 6px 8px;
-  border-radius: calc(var(--orca-radius) - 2px);
-  background: var(--orca-muted);
-  font-size: 11px;
-  overflow-wrap: break-word;
 }
 .row {
   display: flex;

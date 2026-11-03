@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommandPreview from './CommandPreview.vue'
 import { computed, ref } from 'vue'
 import {
   composeDownCommand,
@@ -74,7 +75,7 @@ function run(): void {
   <div class="backdrop" data-test="compose-dialog" @keydown.esc="emit('close')" @click.self="emit('close')">
     <div class="box" role="dialog" aria-modal="true">
       <h2 class="box-title">{{ mode === 'deploy' ? 'Deploy' : 'Down' }} {{ project.name }}</h2>
-      <code class="preview" data-test="compose-command">{{ command }}</code>
+      <CommandPreview :command="command" data-test="compose-command" />
 
       <template v-if="mode === 'deploy'">
         <fieldset class="group">
@@ -202,13 +203,6 @@ function run(): void {
   font-size: 13px;
   font-weight: 600;
   overflow-wrap: anywhere;
-}
-.preview {
-  padding: 6px 8px;
-  border-radius: calc(var(--orca-radius) - 2px);
-  background: var(--orca-muted);
-  font-size: 11px;
-  overflow-wrap: break-word;
 }
 .group {
   display: flex;

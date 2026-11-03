@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CommandPreview from './CommandPreview.vue'
 import { computed, onMounted, ref, useTemplateRef } from 'vue'
 import { shellQuote } from '../../shared/compose'
 import { DOCKER_NAME, NETWORK_DRIVERS, type NetworkCreateInput, type NetworkDriver } from '../../shared/protocol'
@@ -48,7 +49,7 @@ onMounted(() => field.value?.focus())
   <div class="backdrop" data-test="network-dialog" @keydown.esc="emit('close')" @click.self="emit('close')">
     <div class="box" role="dialog" aria-modal="true" aria-label="Create Network">
       <h2 class="box-title">Create Network</h2>
-      <code class="preview" data-test="network-command">{{ command }}</code>
+      <CommandPreview :command="command" data-test="network-command" />
       <input
         ref="field"
         v-model="name"
@@ -117,14 +118,6 @@ onMounted(() => field.value?.focus())
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-}
-.preview {
-  padding: 6px 8px;
-  border-radius: calc(var(--orca-radius) - 2px);
-  background: var(--orca-muted);
-  font-size: 11px;
-  /* Wraps between flags; a flag splits only if it cannot fit a line on its own. */
-  overflow-wrap: break-word;
 }
 .driver {
   display: flex;
