@@ -1,8 +1,8 @@
 {
   "manifestVersion": 2,
   "id": "docker",
-  "name": "jb-like-docker-service",
-  "version": "0.7.3",
+  "name": "JB like docker service",
+  "version": "0.7.4",
   "description": "Docker Compose controls in a side panel and notifications when containers crash.",
   "license": "MIT",
   "repository": "https://github.com/TAZAQ/orca-docker-plugin",
