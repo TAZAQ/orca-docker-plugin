@@ -4,15 +4,15 @@ Docker and Docker Compose in the Orca side panel, with crash notifications. Need
 
 <p align="center"><img src="docs/demo.gif" alt="Demo of the Docker panel in light and dark themes: the live tree, search, context menus, logs and image cleanup" width="720"></p>
 
-- Inspired by JetBrains software: follows the Docker node of the Services tool window. Independent project, not affiliated with JetBrains.
+- Inspired by JetBrains software: follows the Docker node of the Services tool window. Independent project, not affiliated with or endorsed by JetBrains or Docker.
 - All code in this project is AI-generated.
 
 ## Install
 
-Install from the [Orca plugin directory](https://orca.dev/plugins/tazaq/orca-docker-plugin), or run:
+Check the [Orca directory listing and publication status](https://orca.dev/plugins/tazaq/jb-like-docker-service), or install directly from GitHub:
 
 ```sh
-orca plugin install TAZAQ/orca-docker-plugin
+orca plugin install TAZAQ/jb-like-docker-service
 ```
 
 Orca asks you to approve the worker's full access to your machine. Review the access
