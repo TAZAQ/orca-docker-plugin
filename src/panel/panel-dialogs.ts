@@ -9,7 +9,7 @@ import type { ViewOptions } from './menus'
 export const IMAGE_REFERENCE = /^[a-z0-9][a-z0-9._/:@-]{0,254}$/i
 
 const LIST_MAX = 100
-const VIEW_KEY = 'docker.view'
+const VIEW_KEY = 'jb-containers.view'
 const DEFAULT_VIEW: ViewOptions = { showStopped: true, showUntagged: true }
 
 export function counted(count: number, noun: string): string {

@@ -8,9 +8,9 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 // src/shared/protocol.ts
 /** The contract between the panel and the worker, shared by both sides. */
-var OPEN_TERMINAL_REQUEST = "terminal.open";
-var TREE_REQUEST = "docker.tree";
-var TREE_CHANGED_EVENT = "docker.tree.changed";
+var OPEN_TERMINAL_REQUEST = "jb-containers-terminal.open";
+var TREE_REQUEST = "jb-containers-docker.tree";
+var TREE_CHANGED_EVENT = "jb-containers-docker.tree.changed";
 function emptyTree(error) {
 	return {
 		projects: [],
@@ -22,7 +22,7 @@ function emptyTree(error) {
 		...error === void 0 ? {} : { error }
 	};
 }
-var CONTAINER_ACTION_REQUEST = "docker.container";
+var CONTAINER_ACTION_REQUEST = "jb-containers-docker.container";
 var CONTAINER_ACTIONS = [
 	"start",
 	"stop",
@@ -31,22 +31,22 @@ var CONTAINER_ACTIONS = [
 	"unpause",
 	"remove"
 ];
-var LOGS_START_REQUEST = "docker.logs.start";
-var LOGS_RENEW_REQUEST = "docker.logs.renew";
-var LOGS_STOP_REQUEST = "docker.logs.stop";
-var LOGS_EVENT = "docker.logs";
-var INSPECT_REQUEST = "docker.inspect";
-var PROCESSES_REQUEST = "docker.processes";
-var FILES_REQUEST = "docker.files";
-var IMAGE_REMOVE_REQUEST = "docker.image.remove";
-var IMAGE_PRUNE_PREVIEW_REQUEST = "docker.images.prunePreview";
-var IMAGE_PRUNE_REQUEST = "docker.images.prune";
+var LOGS_START_REQUEST = "jb-containers-docker.logs.start";
+var LOGS_RENEW_REQUEST = "jb-containers-docker.logs.renew";
+var LOGS_STOP_REQUEST = "jb-containers-docker.logs.stop";
+var LOGS_EVENT = "jb-containers-docker.logs";
+var INSPECT_REQUEST = "jb-containers-docker.inspect";
+var PROCESSES_REQUEST = "jb-containers-docker.processes";
+var FILES_REQUEST = "jb-containers-docker.files";
+var IMAGE_REMOVE_REQUEST = "jb-containers-docker.image.remove";
+var IMAGE_PRUNE_PREVIEW_REQUEST = "jb-containers-docker.images.prunePreview";
+var IMAGE_PRUNE_REQUEST = "jb-containers-docker.images.prune";
 /** dangling: untagged images. unused: every image no container uses, tagged or not. */
 var PRUNE_MODES = ["dangling", "unused"];
-var CLEANUP_PREVIEW_REQUEST = "docker.cleanup.preview";
-var CLEANUP_REQUEST = "docker.cleanup";
-var NETWORK_CREATE_REQUEST = "docker.network.create";
-var VOLUME_CREATE_REQUEST = "docker.volume.create";
+var CLEANUP_PREVIEW_REQUEST = "jb-containers-docker.cleanup.preview";
+var CLEANUP_REQUEST = "jb-containers-docker.cleanup";
+var NETWORK_CREATE_REQUEST = "jb-containers-docker.network.create";
+var VOLUME_CREATE_REQUEST = "jb-containers-docker.volume.create";
 /** Stopped containers, or networks and volumes no container refers to. */
 var CLEANUP_KINDS = [
 	"containers",
@@ -61,12 +61,12 @@ var NETWORK_DRIVERS = [
 ];
 /** What Docker accepts as a network or volume name. */
 var DOCKER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
-var IMAGE_SEARCH_REQUEST = "docker.images.search";
-var SYSTEM_CLEANUP_PREVIEW_REQUEST = "docker.system.cleanupPreview";
-var SYSTEM_CLEANUP_REQUEST = "docker.system.cleanup";
-var DASHBOARD_REQUEST = "docker.dashboard";
-var REMOVE_REQUEST = "docker.remove";
-var CONTEXT_USE_REQUEST = "docker.context.use";
+var IMAGE_SEARCH_REQUEST = "jb-containers-docker.images.search";
+var SYSTEM_CLEANUP_PREVIEW_REQUEST = "jb-containers-docker.system.cleanupPreview";
+var SYSTEM_CLEANUP_REQUEST = "jb-containers-docker.system.cleanup";
+var DASHBOARD_REQUEST = "jb-containers-docker.dashboard";
+var REMOVE_REQUEST = "jb-containers-docker.remove";
+var CONTEXT_USE_REQUEST = "jb-containers-docker.context.use";
 // src/worker/compose-status.ts
 var PROJECT_LABEL = "com.docker.compose.project";
 var STANDALONE = "(standalone)";
@@ -1453,9 +1453,9 @@ var TerminalLauncher = class {
 	}
 };
 // src/worker/main.ts
-var NOTIFICATIONS_KEY = "crashNotifications";
+var NOTIFICATIONS_KEY = "jb-containers.crash-notifications";
 /** The context chosen in the panel; absent means the docker CLI's current one. */
-var CONTEXT_KEY = "dockerContext";
+var CONTEXT_KEY = "jb-containers.docker-context";
 /** Orca reaps a worker after 5 idle minutes; any host call counts as activity. */
 var KEEPALIVE_MS = 12e4;
 var stopWorker = null;
@@ -1535,7 +1535,7 @@ async function activate(orca) {
 	async function notificationsEnabled() {
 		return (await orca.host.call("storage.get", { key: NOTIFICATIONS_KEY }))?.value !== false;
 	}
-	orca.commands.register("docker-status", async () => {
+	orca.commands.register("jb-containers-docker-status", async () => {
 		try {
 			const projects = summarizeProjects(await (await api()).listContainers());
 			await notify("Docker Compose", formatStatus(projects));
@@ -1547,7 +1547,7 @@ async function activate(orca) {
 			return { error: message };
 		}
 	});
-	orca.commands.register("docker-toggle-notifications", async () => {
+	orca.commands.register("jb-containers-docker-toggle-notifications", async () => {
 		const enabled = !await notificationsEnabled();
 		await orca.host.call("storage.set", {
 			key: NOTIFICATIONS_KEY,

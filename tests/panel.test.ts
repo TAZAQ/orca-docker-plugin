@@ -584,7 +584,12 @@ describe('panel', () => {
     await menuItem(wrapper, 'Show Untagged Images').trigger('click')
     expect(wrapper.find('[data-test="container-row-old-1"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="image-row-abc123"]').exists()).toBe(false)
-    expect(JSON.parse(localStorage.getItem('docker.view')!)).toEqual({ showStopped: false, showUntagged: false })
+    const restored = mount(App, { props: { host: fakeHost(workspace).host } })
+    await flushPromises()
+    await restored.get('[data-test="group-docker"]').trigger('contextmenu')
+    expect(menuItem(restored, 'Show Stopped Containers').attributes('aria-checked')).toBe('false')
+    expect(menuItem(restored, 'Show Untagged Images').attributes('aria-checked')).toBe('false')
+    restored.unmount()
     localStorage.clear()
   })
 

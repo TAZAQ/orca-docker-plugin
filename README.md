@@ -1,6 +1,6 @@
-# JB like docker service
+# JB Containers
 
-Docker and Docker Compose in the Orca side panel, with crash notifications. Needs Orca 1.4.246+.
+Docker and Docker Compose in an Orca sidebar inspired by the JetBrains Services tool window, with live logs and crash notifications. Requires Orca 1.4.246+.
 
 <p align="center"><img src="docs/demo.gif" alt="Demo of the Docker panel in light and dark themes: the live tree, search, context menus, logs and image cleanup" width="720"></p>
 
@@ -17,6 +17,24 @@ orca plugin install TAZAQ/jb-like-docker-service
 
 Orca asks you to approve the worker's full access to your machine. Review the access
 shown, then repeat with the `--approve <fingerprint>` it prints.
+
+## Plugin identity and access
+
+- Plugin ID: `jb-containers`; installed identity: `tazaq.jb-containers`.
+- Development identity: `local.jb-containers`.
+- Panel ID: `jb-containers-docker`, displayed as **JB Containers**.
+- Commands: `jb-containers-docker-status` and `jb-containers-docker-toggle-notifications`.
+- Requests and events use the `jb-containers-` namespace; persistent keys use `jb-containers.`.
+
+This is a different identity from the earlier `tazaq.docker` / `local.docker` releases.
+Orca requires approval for the new identity; the old plugin's storage and approvals
+are not migrated automatically. Namespaced preference keys also start with defaults.
+Disable or remove the old copy before using the new one to avoid duplicate watchers
+and notifications; removing a plugin does not remove Docker resources.
+
+The trusted worker runs with your operating-system user's access to Docker and the
+machine. Its declared Orca permissions are workspace details, agent status events,
+desktop notifications and its own storage. Only approve it if you trust this code.
 
 ## Development
 
@@ -50,6 +68,7 @@ orca plugin dev load .    # then repeat with the --approve <fingerprint> it prin
 - Jump to Source and Open Project are off until Orca's API can open files.
 - Terminals open through the `orca-ide` CLI, because the plugin API cannot create them yet.
 - SSH contexts are not supported; `DOCKER_HOST` and `DOCKER_CONTEXT` are not read, only `~/.docker` contexts.
+- Browser clients with opaque origins may fail while loading view preferences; the desktop app is the verified target.
 - Commands assume a POSIX shell.
 
 ## Checks
@@ -63,8 +82,12 @@ npm run typecheck
 
 The root manifest and committed `dist/main.mjs` and `dist/panel.html` make the
 repository directly installable; users do not need to build it.
+Keep `README.md`, `orca-plugin.json`, package versions and worker registrations in
+sync as required by [AGENTS.md](AGENTS.md). A successful push is not a directory release.
 The directory cover, `docs/cover.png`, is a 16:10 crop of the expanded Compose
 project frame from `docs/demo.gif`, showing both light and dark themes.
+`docs/icon.png` is an original container-box icon; `docs/screenshot-logs.png` is a
+static frame of the demo with live-log sample data. Both are declared in the manifest.
 
 For each release, update the version in `package.json`, `package-lock.json` and
 `orca-plugin.json`, run the checks above and `npm run build`, then

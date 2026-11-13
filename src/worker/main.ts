@@ -26,9 +26,9 @@ export type OrcaApi = {
   log(message: string): void
 }
 
-const NOTIFICATIONS_KEY = 'crashNotifications'
+const NOTIFICATIONS_KEY = 'jb-containers.crash-notifications'
 /** The context chosen in the panel; absent means the docker CLI's current one. */
-const CONTEXT_KEY = 'dockerContext'
+const CONTEXT_KEY = 'jb-containers.docker-context'
 /** Orca reaps a worker after 5 idle minutes; any host call counts as activity. */
 export const KEEPALIVE_MS = 2 * 60_000
 
@@ -107,7 +107,7 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     return stored?.value !== false
   }
 
-  orca.commands.register('docker-status', async () => {
+  orca.commands.register('jb-containers-docker-status', async () => {
     try {
       const docker = await api()
       const projects = summarizeProjects(await docker.listContainers())
@@ -121,7 +121,7 @@ export default async function activate(orca: OrcaApi): Promise<void> {
     }
   })
 
-  orca.commands.register('docker-toggle-notifications', async () => {
+  orca.commands.register('jb-containers-docker-toggle-notifications', async () => {
     const enabled = !(await notificationsEnabled())
     await orca.host.call('storage.set', { key: NOTIFICATIONS_KEY, value: enabled })
     setNotifying(enabled)

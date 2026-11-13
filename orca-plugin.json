@@ -1,24 +1,40 @@
 {
+  "$schema": "https://raw.githubusercontent.com/stablyai/orca/main/docs/schemas/plugins/orca-plugin.v2.schema.json",
   "manifestVersion": 2,
   "id": "jb-containers",
   "name": "JB Containers",
-  "version": "0.7.5",
-  "description": "Docker Compose controls in a side panel and notifications when containers crash.",
+  "version": "0.7.6",
+  "description": "Manage Docker containers, Compose projects, images, networks and volumes in a JetBrains-inspired sidebar, with live logs and crash notifications. Independent plugin; not affiliated with or endorsed by JetBrains or Docker.",
+  "author": {
+    "name": "TAZAQ",
+    "url": "https://github.com/TAZAQ"
+  },
   "license": "MIT",
-  "repository": "https://github.com/TAZAQ/orca-docker-plugin",
+  "repository": "https://github.com/TAZAQ/jb-like-docker-service",
+  "homepage": "https://github.com/TAZAQ/jb-like-docker-service#readme",
+  "icon": "docs/icon.png",
   "cover": {
     "path": "docs/cover.png",
     "alt": "Expanded Docker Compose project with services and worker containers in light and dark themes"
   },
+  "screenshots": [
+    {
+      "path": "docs/screenshot-logs.png",
+      "alt": "Docker Compose services and live PostgreSQL container logs in light and dark themes",
+      "caption": "Demo data: expand a Compose project and follow container logs without leaving the sidebar."
+    }
+  ],
   "engines": { "orca": ">=1.4.246" },
   "execution": "trusted-worker",
   "pluginApi": 1,
   "main": "dist/main.mjs",
   "contributes": {
-    "panels": [{ "id": "docker", "title": "Docker", "icon": "package", "entry": "dist/panel.html" }],
+    "panels": [
+      { "id": "jb-containers-docker", "title": "JB Containers", "icon": "package", "entry": "dist/panel.html", "ui": "html" }
+    ],
     "commands": [
-      { "id": "docker-status", "title": "Docker: Show Compose Status" },
-      { "id": "docker-toggle-notifications", "title": "Docker: Toggle Crash Notifications" }
+      { "id": "jb-containers-docker-status", "title": "JB Containers: Show Compose Status", "when": "global" },
+      { "id": "jb-containers-docker-toggle-notifications", "title": "JB Containers: Toggle Crash Notifications", "when": "global" }
     ],
     "events": [{ "on": "workspace.created" }, { "on": "agent.status.changed" }]
   },

@@ -1,6 +1,6 @@
 {
-  "name": "orca-docker-plugin",
-  "version": "0.7.5",
+  "name": "jb-containers",
+  "version": "0.7.6",
   "private": true,
   "type": "module",
   "engines": {

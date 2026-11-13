@@ -20,7 +20,7 @@ const emit = defineEmits<{
   menu: [event: MouseEvent, target: MenuTarget]
 }>()
 
-const ROOT = 'docker'
+const ROOT = 'jb-containers-docker'
 
 const expanded = ref(new Set([ROOT]))
 /** The row last clicked. A container under a service and under Containers are two rows. */

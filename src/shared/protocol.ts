@@ -1,6 +1,6 @@
 /** The contract between the panel and the worker, shared by both sides. */
 
-export const OPEN_TERMINAL_REQUEST = 'terminal.open'
+export const OPEN_TERMINAL_REQUEST = 'jb-containers-terminal.open'
 
 export type OpenTerminalInput = {
   title: string
@@ -9,8 +9,8 @@ export type OpenTerminalInput = {
   reuseKey?: string
 }
 
-export const TREE_REQUEST = 'docker.tree'
-export const TREE_CHANGED_EVENT = 'docker.tree.changed'
+export const TREE_REQUEST = 'jb-containers-docker.tree'
+export const TREE_CHANGED_EVENT = 'jb-containers-docker.tree.changed'
 
 export type ContainerHealth = 'healthy' | 'unhealthy' | 'starting'
 
@@ -69,16 +69,16 @@ export function emptyTree(error?: string): DockerTree {
   }
 }
 
-export const CONTAINER_ACTION_REQUEST = 'docker.container'
+export const CONTAINER_ACTION_REQUEST = 'jb-containers-docker.container'
 export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'pause', 'unpause', 'remove'] as const
 
 export type ContainerAction = (typeof CONTAINER_ACTIONS)[number]
 export type ContainerActionInput = { id: string; action: ContainerAction }
 
-export const LOGS_START_REQUEST = 'docker.logs.start'
-export const LOGS_RENEW_REQUEST = 'docker.logs.renew'
-export const LOGS_STOP_REQUEST = 'docker.logs.stop'
-export const LOGS_EVENT = 'docker.logs'
+export const LOGS_START_REQUEST = 'jb-containers-docker.logs.start'
+export const LOGS_RENEW_REQUEST = 'jb-containers-docker.logs.renew'
+export const LOGS_STOP_REQUEST = 'jb-containers-docker.logs.stop'
+export const LOGS_EVENT = 'jb-containers-docker.logs'
 
 /** How often the panel renews a log stream, well within the worker's lease. */
 export const LOGS_RENEW_MS = 20_000
@@ -93,9 +93,9 @@ export type LogsPayload =
   | { streamId: string; kind: 'ended'; error?: string }
 
 
-export const INSPECT_REQUEST = 'docker.inspect'
-export const PROCESSES_REQUEST = 'docker.processes'
-export const FILES_REQUEST = 'docker.files'
+export const INSPECT_REQUEST = 'jb-containers-docker.inspect'
+export const PROCESSES_REQUEST = 'jb-containers-docker.processes'
+export const FILES_REQUEST = 'jb-containers-docker.files'
 
 /** The kinds of Docker objects that have a page of details, an inspect view, and an id. */
 export type ObjectKind = 'container' | 'image' | 'network' | 'volume'
@@ -105,9 +105,9 @@ export type FilesInput = { id: string; path: string }
 export type ProcessesOutput = { titles: string[]; processes: string[][] }
 export type FilesOutput = { text: string }
 
-export const IMAGE_REMOVE_REQUEST = 'docker.image.remove'
-export const IMAGE_PRUNE_PREVIEW_REQUEST = 'docker.images.prunePreview'
-export const IMAGE_PRUNE_REQUEST = 'docker.images.prune'
+export const IMAGE_REMOVE_REQUEST = 'jb-containers-docker.image.remove'
+export const IMAGE_PRUNE_PREVIEW_REQUEST = 'jb-containers-docker.images.prunePreview'
+export const IMAGE_PRUNE_REQUEST = 'jb-containers-docker.images.prune'
 
 /** dangling: untagged images. unused: every image no container uses, tagged or not. */
 export const PRUNE_MODES = ['dangling', 'unused'] as const
@@ -122,10 +122,10 @@ export type PruneInput = { mode: PruneMode }
 export type PrunePreview = { images: { name: string; size: number }[] }
 export type PruneResult = { removed: number; reclaimed: number }
 
-export const CLEANUP_PREVIEW_REQUEST = 'docker.cleanup.preview'
-export const CLEANUP_REQUEST = 'docker.cleanup'
-export const NETWORK_CREATE_REQUEST = 'docker.network.create'
-export const VOLUME_CREATE_REQUEST = 'docker.volume.create'
+export const CLEANUP_PREVIEW_REQUEST = 'jb-containers-docker.cleanup.preview'
+export const CLEANUP_REQUEST = 'jb-containers-docker.cleanup'
+export const NETWORK_CREATE_REQUEST = 'jb-containers-docker.network.create'
+export const VOLUME_CREATE_REQUEST = 'jb-containers-docker.volume.create'
 
 /** Stopped containers, or networks and volumes no container refers to. */
 export const CLEANUP_KINDS = ['containers', 'networks', 'volumes'] as const
@@ -158,9 +158,9 @@ export type VolumeCreateInput = { name: string }
 /** What Docker accepts as a network or volume name. */
 export const DOCKER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/
 
-export const IMAGE_SEARCH_REQUEST = 'docker.images.search'
-export const SYSTEM_CLEANUP_PREVIEW_REQUEST = 'docker.system.cleanupPreview'
-export const SYSTEM_CLEANUP_REQUEST = 'docker.system.cleanup'
+export const IMAGE_SEARCH_REQUEST = 'jb-containers-docker.images.search'
+export const SYSTEM_CLEANUP_PREVIEW_REQUEST = 'jb-containers-docker.system.cleanupPreview'
+export const SYSTEM_CLEANUP_REQUEST = 'jb-containers-docker.system.cleanup'
 
 export type ImageSearchInput = { term: string }
 export type ImageSearchOutput = { names: string[] }
@@ -183,8 +183,8 @@ export type SystemCleanupInput = {
 }
 export type SystemCleanupResult = CleanupResult & { buildCacheFreed: number }
 
-export const DASHBOARD_REQUEST = 'docker.dashboard'
-export const REMOVE_REQUEST = 'docker.remove'
+export const DASHBOARD_REQUEST = 'jb-containers-docker.dashboard'
+export const REMOVE_REQUEST = 'jb-containers-docker.remove'
 
 /** The Dashboard tab of a JetBrains Services node: fields, then tables. */
 export type Dashboard = {
@@ -195,6 +195,6 @@ export type Dashboard = {
 
 export type RemoveInput = { kind: 'network' | 'volume'; id: string }
 
-export const CONTEXT_USE_REQUEST = 'docker.context.use'
+export const CONTEXT_USE_REQUEST = 'jb-containers-docker.context.use'
 /** null follows the docker CLI's current context again. */
 export type ContextUseInput = { name: string | null }
