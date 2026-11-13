@@ -7,7 +7,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 // style is inlined into panel.html; the desktop app serves the same file as is.
 export default defineConfig({
   root: fileURLToPath(new URL('src/panel', import.meta.url)),
-  publicDir: fileURLToPath(new URL('public', import.meta.url)),
+  publicDir: false,
   plugins: [vue(), viteSingleFile()],
   build: {
     outDir: fileURLToPath(new URL('dist', import.meta.url)),

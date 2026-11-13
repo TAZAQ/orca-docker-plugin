@@ -4,12 +4,14 @@
   "name": "Docker",
   "version": "0.7.0",
   "description": "Docker Compose controls in a side panel and notifications when containers crash.",
+  "license": "MIT",
+  "repository": "https://github.com/TAZAQ/orca-docker-plugin",
   "engines": { "orca": ">=1.4.246" },
   "execution": "trusted-worker",
   "pluginApi": 1,
-  "main": "main.mjs",
+  "main": "dist/main.mjs",
   "contributes": {
-    "panels": [{ "id": "docker", "title": "Docker", "icon": "package", "entry": "panel.html" }],
+    "panels": [{ "id": "docker", "title": "Docker", "icon": "package", "entry": "dist/panel.html" }],
     "commands": [
       { "id": "docker-status", "title": "Docker: Show Compose Status" },
       { "id": "docker-toggle-notifications", "title": "Docker: Toggle Crash Notifications" }

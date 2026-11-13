@@ -7,12 +7,23 @@ Docker and Docker Compose in the Orca side panel, with crash notifications. Need
 - Inspired by JetBrains software: follows the Docker node of the Services tool window. Independent project, not affiliated with JetBrains.
 - All code in this project is AI-generated.
 
-## Setup
+## Install
+
+Install from the [Orca plugin directory](https://orca.dev/plugins/tazaq/orca-docker-plugin), or run:
+
+```sh
+orca plugin install TAZAQ/orca-docker-plugin
+```
+
+Orca asks you to approve the worker's full access to your machine. Review the access
+shown, then repeat with the `--approve <fingerprint>` it prints.
+
+## Development
 
 ```sh
 npm install
 npm run build
-orca plugin dev load dist    # then repeat with the --approve <fingerprint> it prints
+orca plugin dev load .    # then repeat with the --approve <fingerprint> it prints
 ```
 
 ## Features
@@ -46,3 +57,15 @@ orca plugin dev load dist    # then repeat with the --approve <fingerprint> it p
 npm test
 npm run typecheck
 ```
+
+## Publish
+
+The root manifest and committed `dist/main.mjs` and `dist/panel.html` make the
+repository directly installable; users do not need to build it.
+
+For each release, update the version in `package.json`, `package-lock.json` and
+`orca-plugin.json`, run the checks above and `npm run build`, then
+`orca plugin validate .`. Commit the sources and rebuilt `dist` files, push to
+`main`, and push a matching `vX.Y.Z` tag. Keep the repository's `orca-plugin` topic.
+The directory indexes new tags, usually within an hour; check the listing page
+for acceptance or rejection.
