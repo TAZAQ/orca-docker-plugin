@@ -76,6 +76,20 @@ describe('buildTree', () => {
     expect(tree.volumes).toEqual([{ name: 'pgdata', driver: 'local' }])
   })
 
+  it('keeps a Compose project with only a labeled network so failed Down can be retried', () => {
+    const tree = buildTree([], {
+      images: [],
+      volumes: [],
+      networks: [
+        { Id: 'owned', Name: 'custom-name', Driver: 'bridge', Labels: { 'com.docker.compose.project': 'slc' } },
+        { Id: 'external', Name: 'slc_external', Driver: 'bridge', Labels: null }
+      ]
+    })
+    expect(tree.projects).toEqual([{ name: 'slc', configFiles: [], services: [] }])
+    expect(tree.networks.find((network) => network.id === 'owned')?.composeProject).toBe('slc')
+    expect(tree.networks.find((network) => network.id === 'external')).not.toHaveProperty('composeProject')
+  })
+
   it('reads health from the status text', () => {
     const tree = buildTree([
       container({ name: 'a', Status: 'Up 1 minute (unhealthy)' }),

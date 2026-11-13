@@ -33,7 +33,8 @@ orca plugin dev load .    # then repeat with the --approve <fingerprint> it prin
 - **Click a running container:** opens its shell in a terminal tab.
 - **Right-click any row:** start, stop, restart, deploy, pause, inspect, processes, files, attach, exec, shells as root, open ports in the browser and more.
 - **Dashboard:** select a container, image, network or volume to see its environment, ports, volumes, layers or users.
-- **Compose:** Deploy… and Down… with options (services, profiles, env files, build, recreate, volumes), and Scale.
+- **Compose groups:** Start All, Stop and Restart act on existing containers through Docker, without needing the source directory. Down confirms and removes the project's containers and Compose-owned networks, keeping volumes and images; it works after deleting the project files. Search does not narrow a group action.
+- **Compose options:** Deploy… and Down with Options… use the recorded Compose files (services, profiles, env files, build, recreate, volumes), and Scale.
 - **Images:** Pull with name suggestions, Create Container with run options, Push.
 - **Logs in the panel:** live stream with a line filter.
 - **Clean Up** on Docker, Containers, Images, Networks and Volumes: removes stopped or unused ones and the build cache. Lists what goes, then removes exactly that.

@@ -611,6 +611,14 @@ function buildTree(containers, resources = NO_RESOURCES) {
 		}
 		service.containers.push(toTreeContainer(container));
 	}
+	for (const network of resources.networks) {
+		const name = network.Labels?.[PROJECT_LABEL];
+		if (name && !projects.has(name)) projects.set(name, {
+			name,
+			configFiles: [],
+			services: []
+		});
+	}
 	const sorted = [...projects.values()].sort(byName$1);
 	for (const project of sorted) {
 		project.services.sort(byName$1);
@@ -624,7 +632,8 @@ function buildTree(containers, resources = NO_RESOURCES) {
 		networks: resources.networks.map((network) => ({
 			id: network.Id,
 			name: network.Name,
-			driver: network.Driver
+			driver: network.Driver,
+			...network.Labels?.["com.docker.compose.project"] ? { composeProject: network.Labels[PROJECT_LABEL] } : {}
 		})).sort(byName$1),
 		volumes: resources.volumes.map((volume) => ({
 			name: volume.Name,

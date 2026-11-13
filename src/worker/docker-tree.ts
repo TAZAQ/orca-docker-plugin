@@ -114,6 +114,12 @@ export function buildTree(
     }
     service.containers.push(toTreeContainer(container))
   }
+  for (const network of resources.networks) {
+    const name = network.Labels?.[PROJECT_LABEL]
+    if (name && !projects.has(name)) {
+      projects.set(name, { name, configFiles: [], services: [] })
+    }
+  }
   const sorted = [...projects.values()].sort(byName)
   for (const project of sorted) {
     project.services.sort(byName)
@@ -130,7 +136,12 @@ export function buildTree(
     containers: containers.map(toTreeContainer).sort(byName),
     images: resources.images.map(toTreeImage).sort(byName),
     networks: resources.networks
-      .map((network) => ({ id: network.Id, name: network.Name, driver: network.Driver }))
+      .map((network) => ({
+        id: network.Id,
+        name: network.Name,
+        driver: network.Driver,
+        ...(network.Labels?.[PROJECT_LABEL] ? { composeProject: network.Labels[PROJECT_LABEL] } : {})
+      }))
       .sort(byName),
     volumes: resources.volumes
       .map((volume) => ({ name: volume.Name, driver: volume.Driver }))

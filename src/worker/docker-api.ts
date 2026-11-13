@@ -33,7 +33,13 @@ export type DockerContainer = {
 }
 
 export type DockerImage = { Id: string; RepoTags: string[] | null; Size: number }
-export type DockerNetwork = { Id: string; Name: string; Driver: string; Scope?: string }
+export type DockerNetwork = {
+  Id: string
+  Name: string
+  Driver: string
+  Scope?: string
+  Labels?: Record<string, string> | null
+}
 export type DockerVolume = { Name: string; Driver: string }
 
 export class DockerApiError extends Error {

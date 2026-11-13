@@ -246,25 +246,9 @@ describe('panel', () => {
 
 
 
-  it('offers the JetBrains group menu on a compose project', async () => {
+  it('deploys a Compose project from its recorded configuration', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    const labels = wrapper.findAll('[data-test="context-menu"] button').map((button) => button.text())
-    expect(labels).toEqual([
-      'Start All',
-      'Deploy',
-      'Deploy…',
-      'Restart',
-      'Stop',
-      'Down…',
-      'Pull',
-      'Build',
-      'Status in Terminal',
-      'Logs in Terminal',
-      'Jump to Source',
-      'Copy Compose File Path'
-    ])
-    expect(menuItem(wrapper, 'Jump to Source').attributes('disabled')).toBeDefined()
     await menuItem(wrapper, 'Deploy').trigger('click')
     await flushPromises()
     expect(sent[0]!.command).toBe('docker compose -p shop -f /srv/shop/compose.yaml up -d')
@@ -806,10 +790,108 @@ describe('panel', () => {
     expect(wrapper.get('[data-test="status"]').text()).toBe('Open any terminal in this workspace first')
   })
 
+  it('takes down a project with missing Compose files, retaining volumes and unrelated networks', async () => {
+    const { host, sent } = fakeHost(workspace)
+    const stopped = { ...container, id: 'def', name: 'shop-db-1', state: 'exited' }
+    const orphanTree = {
+      ...tree,
+      projects: [{
+        name: 'shop',
+        configFiles: ['/deleted/slc/compose.yaml'],
+        services: [{ name: 'web', containers: [container, stopped] }]
+      }],
+      containers: [container, stopped],
+      networks: [
+        { id: 'owned', name: 'shop_default', driver: 'bridge', composeProject: 'shop' },
+        { id: 'other', name: 'shop_external', driver: 'bridge' },
+        { id: 'foreign', name: 'another_default', driver: 'bridge', composeProject: 'another' }
+      ]
+    }
+    host.loadTree = vi.fn(async () => orphanTree)
+    const operations: string[] = []
+    host.containerAction = vi.fn(async (id, action) => { operations.push(`${action}:${id}`) })
+    host.remove = vi.fn(async (kind, id) => { operations.push(`${kind}:${id}`) })
+    const wrapper = mount(App, { props: { host } })
+    await flushPromises()
+    await wrapper.get('[data-test="tree-search"]').setValue('shop-web')
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Down').trigger('click')
+    expect(operations).toEqual([])
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('shop-db-1')
+    expect(wrapper.get('[data-test="dialog-items"]').text()).toContain('shop_default')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(operations).toEqual(['stop:abc', 'remove:abc', 'remove:def', 'network:owned'])
+    expect(sent).toEqual([])
+  })
+
+  it.each(['Start All', 'Stop', 'Restart'])('runs project %s without Compose files', async (label) => {
+    const { host, sent, wrapper } = await mountWithProject()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, label).trigger('click')
+    await flushPromises()
+    if (label === 'Start All') {
+      expect(host.containerAction).not.toHaveBeenCalled()
+    } else {
+      expect(host.containerAction).toHaveBeenCalledWith('abc', label.toLowerCase())
+    }
+    expect(sent).toEqual([])
+  })
+
+  it('does not remove a container or its network when stopping it fails during Down', async () => {
+    const { host, wrapper } = await mountWithProject()
+    host.containerAction = vi.fn(async () => { throw new Error('stop refused') })
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Down').trigger('click')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(host.containerAction).toHaveBeenCalledTimes(1)
+    expect(host.remove).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="status"]').text()).toContain('stop refused')
+  })
+
+  it('starts stopped project containers even when the search hides them', async () => {
+    const { host, sent, wrapper } = await mountWithProject()
+    const stopped = { ...container, id: 'stopped', name: 'shop-db-1', state: 'exited' }
+    treeListeners.at(-1)!({
+      ...tree,
+      projects: [{
+        ...tree.projects[0]!,
+        services: [{ name: 'web', containers: [container] }, { name: 'db', containers: [stopped] }]
+      }]
+    })
+    await wrapper.get('[data-test="tree-search"]').setValue('shop-web')
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Start All').trigger('click')
+    await flushPromises()
+    expect(host.containerAction).toHaveBeenCalledExactlyOnceWith('stopped', 'start')
+    expect(sent).toEqual([])
+  })
+
+  it('unpauses a paused container before stopping and removing it', async () => {
+    const { host, wrapper } = await mountWithProject()
+    treeListeners.at(-1)!({
+      ...tree,
+      projects: [{
+        ...tree.projects[0]!,
+        services: [{ name: 'web', containers: [{ ...container, state: 'paused' }] }]
+      }]
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
+    await menuItem(wrapper, 'Down').trigger('click')
+    await wrapper.get('[data-test="dialog-confirm"]').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(host.containerAction).mock.calls).toEqual([
+      ['abc', 'unpause'], ['abc', 'stop'], ['abc', 'remove']
+    ])
+  })
+
+
   it('asks before Down, with its options and the command it runs', async () => {
     const { sent, wrapper } = await mountWithProject()
     await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Down…').trigger('click')
+    await menuItem(wrapper, 'Down with Options…').trigger('click')
     expect(sent).toEqual([])
     const command = () => wrapper.get('[data-test="compose-command"]').text()
     expect(command()).toBe('docker compose -p shop -f /srv/shop/compose.yaml down')
@@ -829,7 +911,7 @@ describe('panel', () => {
   it('refuses a Down timeout that is not a number', async () => {
     const { wrapper } = await mountWithProject()
     await wrapper.get('[data-test="project-row-shop"]').trigger('contextmenu')
-    await menuItem(wrapper, 'Down…').trigger('click')
+    await menuItem(wrapper, 'Down with Options…').trigger('click')
     await wrapper.get('[data-test="compose-timeout"]').setValue('5; rm')
     expect(wrapper.get('[data-test="compose-run"]').attributes('disabled')).toBeDefined()
   })

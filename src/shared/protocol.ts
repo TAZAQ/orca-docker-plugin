@@ -37,7 +37,7 @@ export type TreeProject = {
 }
 
 export type TreeImage = { id: string; name: string; tags: string[]; size: number }
-export type TreeNetwork = { id: string; name: string; driver: string }
+export type TreeNetwork = { id: string; name: string; driver: string; composeProject?: string }
 export type TreeVolume = { name: string; driver: string }
 
 /** The same groups, in the same order, as the Docker node of the JetBrains Services view. */

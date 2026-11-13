@@ -58,6 +58,7 @@ export type MenuActions = {
   systemCleanup(): void
   openPort(port: number): void
   compose(project: TreeProject, action: ProjectAction): void
+  down(project: TreeProject): void
   composeDialog(project: TreeProject, mode: 'deploy' | 'down'): void
   scale(project: TreeProject, service: TreeService): void
   composeInWorkspaceFolder(): void
@@ -104,7 +105,8 @@ function projectMenu(project: TreeProject, actions: MenuActions): MenuEntry[] {
     { label: 'Deploy…', icon: 'deploy', run: () => actions.composeDialog(project, 'deploy') },
     compose('Restart', 'restart', 'restart'),
     compose('Stop', 'stop', 'stop'),
-    { label: 'Down…', icon: 'down', run: () => actions.composeDialog(project, 'down') },
+    { label: 'Down', icon: 'down', run: () => actions.down(project) },
+    { label: 'Down with Options…', icon: 'down', run: () => actions.composeDialog(project, 'down') },
     'separator',
     compose('Pull', 'down', 'pull'),
     compose('Build', 'build', 'build'),

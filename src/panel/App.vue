@@ -37,7 +37,7 @@ import DialogBox, { type DialogRequest } from './components/DialogBox.vue'
 import NetworkDialog from './components/NetworkDialog.vue'
 import LogViewer from './components/LogViewer.vue'
 import ServicesTree from './components/ServicesTree.vue'
-import { formatSize, isRunning } from './container-state'
+import { formatSize, isRunning, isUp } from './container-state'
 import { buildMenu, type MenuActions, type MenuEntry, type MenuTarget, type ViewOptions } from './menus'
 import { counted, IMAGE_REFERENCE, loadView, saveView, systemCleanupDialog, systemCleanupSummary } from './panel-dialogs'
 
@@ -119,6 +119,70 @@ function openContainer(container: TreeContainer): void {
 
 function pointAt(project: TreeProject): ComposeTarget {
   return { projectName: project.name, files: project.configFiles }
+}
+
+function projectContainers(project: TreeProject): TreeContainer[] {
+  const current = tree.value?.projects.find((item) => item.name === project.name)
+  return current?.services.flatMap((service) => service.containers) ?? []
+}
+
+async function runProjectAction(project: TreeProject, action: 'start' | 'stop' | 'restart'): Promise<void> {
+  try {
+    for (const container of projectContainers(project)) {
+      if (action === 'start' ? isUp(container) : action === 'stop' && !isUp(container)) {
+        continue
+      }
+      if (container.state === 'paused') {
+        await props.host.containerAction(container.id, 'unpause')
+      }
+      await props.host.containerAction(container.id, action)
+    }
+    status.value = { kind: 'info', text: `${project.name}: ${action} done` }
+  } catch (error) {
+    showError(error)
+  } finally {
+    await refreshTree()
+  }
+}
+
+function askToDownProject(project: TreeProject): void {
+  const containers = projectContainers(project)
+  const networks = tree.value?.networks.filter((network) => network.composeProject === project.name) ?? []
+  const dockerContext = tree.value?.context?.active
+  dialog.value = {
+    title: `Down ${project.name}?`,
+    message: 'Stops and removes these containers and Compose-owned networks. Volumes and images stay. No Compose file is needed.',
+    items: [
+      ...containers.map((container) => `Container: ${container.name}`),
+      ...networks.map((network) => `Network: ${network.name}`)
+    ],
+    confirmLabel: 'Down',
+    danger: true,
+    confirm: () => void (async () => {
+      try {
+        if (tree.value?.context?.active !== dockerContext) {
+          throw new Error('Docker context changed. Open Down again to review its resources.')
+        }
+        for (const container of containers) {
+          if (container.state === 'paused') {
+            await props.host.containerAction(container.id, 'unpause')
+          }
+          if (isUp(container)) {
+            await props.host.containerAction(container.id, 'stop')
+          }
+          await props.host.containerAction(container.id, 'remove')
+        }
+        for (const network of networks) {
+          await props.host.remove('network', network.id)
+        }
+        status.value = { kind: 'info', text: `${project.name}: down done` }
+      } catch (error) {
+        showError(error)
+      } finally {
+        await refreshTree()
+      }
+    })()
+  }
 }
 
 async function showDetails(
@@ -436,6 +500,7 @@ const menuActions: MenuActions = {
   inspectObject: (kind, id, name) =>
     void showDetails(`Inspect: ${name}`, async () => JSON.stringify(await props.host.inspect(kind, id), null, 2)),
   removeObject: askToRemoveObject,
+  down: askToDownProject,
   composeDialog: (project, mode) => (composeDialog.value = { project, mode }),
   scale: (project, service) => {
     dialog.value = {
@@ -451,7 +516,11 @@ const menuActions: MenuActions = {
     }
   },
   compose: (project, action) => {
-    void runInTerminal(`${project.name} ${action}`, projectCommand(pointAt(project), action))
+    if (action === 'start' || action === 'stop' || action === 'restart') {
+      void runProjectAction(project, action)
+    } else {
+      void runInTerminal(`${project.name} ${action}`, projectCommand(pointAt(project), action))
+    }
   },
   composeInWorkspaceFolder: () =>
     void runInTerminal('compose up', projectCommand({ projectName: '', files: [] }, 'up')),
