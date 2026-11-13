@@ -63,6 +63,8 @@ npm run typecheck
 
 The root manifest and committed `dist/main.mjs` and `dist/panel.html` make the
 repository directly installable; users do not need to build it.
+The directory cover, `docs/cover.png`, is a 16:10 crop of the expanded Compose
+project frame from `docs/demo.gif`, showing both light and dark themes.
 
 For each release, update the version in `package.json`, `package-lock.json` and
 `orca-plugin.json`, run the checks above and `npm run build`, then

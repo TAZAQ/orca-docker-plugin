@@ -2,10 +2,14 @@
   "manifestVersion": 2,
   "id": "docker",
   "name": "Docker",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Docker Compose controls in a side panel and notifications when containers crash.",
   "license": "MIT",
   "repository": "https://github.com/TAZAQ/orca-docker-plugin",
+  "cover": {
+    "path": "docs/cover.png",
+    "alt": "Expanded Docker Compose project with services and worker containers in light and dark themes"
+  },
   "engines": { "orca": ">=1.4.246" },
   "execution": "trusted-worker",
   "pluginApi": 1,
