@@ -1,4 +1,4 @@
-# Orca Docker plugin
+# jb-like-docker-service
 
 Docker and Docker Compose in the Orca side panel, with crash notifications. Needs Orca 1.4.246+.
 
