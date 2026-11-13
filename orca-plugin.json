@@ -1,7 +1,7 @@
 {
   "manifestVersion": 2,
-  "id": "docker",
-  "name": "JB like docker service",
+  "id": "jb-containers",
+  "name": "JB Containers",
   "version": "0.7.5",
   "description": "Docker Compose controls in a side panel and notifications when containers crash.",
   "license": "MIT",
